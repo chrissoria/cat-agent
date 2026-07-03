@@ -64,15 +64,24 @@ class TestPureHelpers:
                                           resets_at=1751000000))
         assert detail == "seven_day limit reached (resets at epoch 1751000000)"
 
-    def test_rate_limit_detail_overage_rejected(self):
-        detail = _rate_limit_detail(_info(status="allowed",
-                                          overage_status="rejected"))
-        assert detail is not None and "limit reached" in detail
+    def test_overage_rejected_with_allowed_primary_is_not_a_limit(self):
+        # Regression (2026-07-03): org-disabled overage shows overage_status=
+        # 'rejected' while the primary window is 'allowed' and calls succeed.
+        # This must NOT be read as a limit, or every call fails on such accounts.
+        assert _rate_limit_detail(
+            _info(status="allowed", overage_status="rejected")
+        ) is None
 
     @pytest.mark.parametrize("status", ["allowed", "allowed_warning"])
     def test_allowed_and_warning_are_not_limits(self, status):
         # The crux: a warning means the request STILL WENT THROUGH.
         assert _rate_limit_detail(_info(status=status)) is None
+
+    def test_finalize_answer_wins_over_limit_event(self):
+        # A successful answer alongside an informational limit event must be
+        # returned, not discarded (the root cause of the overage false-positive).
+        assert _finalize("the answer", None, "five_hour limit reached") == \
+            ("the answer", None)
 
     def test_rate_limit_detail_none_info(self):
         assert _rate_limit_detail(None) is None
@@ -170,6 +179,21 @@ class TestAdapterIntegration:
         """allowed_warning must NOT abort — the answer that follows wins."""
         info = _mk(sdk.RateLimitInfo, status="allowed_warning",
                    rate_limit_type="five_hour")
+        event = _mk(sdk.RateLimitEvent, rate_limit_info=info)
+        block = _mk(sdk.TextBlock, text='{"1": 1, "2": 0}')
+        msg = _mk(sdk.AssistantMessage, content=[block])
+        text, err = _one_shot([event, msg])
+        assert err is None
+        assert text == '{"1": 1, "2": 0}'
+
+    def test_org_disabled_overage_still_returns_answer(self):
+        """The real 2026-07-03 payload: primary window 'allowed', overage
+        'rejected' (org_level_disabled), and a successful answer. Must return
+        the answer — NOT mislabel it rate-limited."""
+        info = _mk(sdk.RateLimitInfo, status="allowed",
+                   overage_status="rejected",
+                   overage_disabled_reason="org_level_disabled",
+                   rate_limit_type="five_hour", resets_at=1783129200)
         event = _mk(sdk.RateLimitEvent, rate_limit_info=info)
         block = _mk(sdk.TextBlock, text='{"1": 1, "2": 0}')
         msg = _mk(sdk.AssistantMessage, content=[block])

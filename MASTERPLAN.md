@@ -142,19 +142,24 @@ rate-limit handling.*
 - [x] Semaphore-bounded async gather (max_workers semantics) — landed in Phase 1
       (`_backend.gather_bounded`); per-row isolation confirmed by a mocked test
       (a throttled row's backoff does not stall healthy rows)
-- [x] Graceful rate-limit handling + partial results — adapter detects the SDK's
-      real signals (`RateLimitEvent.status=="rejected"`, `ResultMessage.
-      api_error_status==429`; `allowed_warning` correctly non-blocking) and
-      surfaces `rate-limited: … (resets at epoch N)`; classify() backs off on a
-      separate budget from json_retries, **fails fast when the reset is beyond
-      the backoff budget** (five_hour caps), and never raises. Live-verified
-      against a genuine exhausted window: 2-row capped run 4.5s vs ~200s pre-fix.
-      37 mocked tests green (incl. real-SDK-object detection + prompt parity).
+- [x] Graceful rate-limit handling + partial results — adapter detects a genuine
+      exhaustion (primary `RateLimitEvent.status=="rejected"` or
+      `ResultMessage.api_error_status==429`; `allowed`/`allowed_warning` non-
+      blocking) and surfaces `rate-limited: … (resets at epoch N)`; classify()
+      backs off on a budget separate from json_retries, **fails fast when the
+      reset is beyond the backoff budget** (five_hour caps), never raises.
+- [x] FALSE-POSITIVE BUG found + fixed 2026-07-03: detection had treated a
+      `rejected` *overage* bucket as a limit, but org-disabled overage
+      (`overage_disabled_reason=="org_level_disabled"`) is a billing config, not
+      a block — the call succeeds. This failed EVERY call on institutional
+      accounts. Now keys only on primary `status`, and a successful answer wins
+      over an informational limit event. Live-confirmed: 3-row classify 3/3
+      success, correct matrix, 4.3s (~1.4s/row). 39 mocked tests green.
 - [x] `benchmarks/bench_classify.py` (synthetic data) + `benchmarks/RESULTS.md`
-- [ ] Clean throughput sweep (N=50 haiku, workers∈{1,4,8}) — DEFERRED: the
-      subscription window was exhausted (resets 18:40 PDT). Run after reset:
+- [ ] Clean throughput sweep (N=50 haiku, workers∈{1,4,8}) — not yet run (held
+      off to spare the maintainer's actively-used window; best on a fresh one):
       `python benchmarks/bench_classify.py --n 50 --write-results`. Phase-1
-      reference stands: ~1.5s/row (sonnet-5, workers=3) vs ~33s/row shim.
+      reference stands: ~1.4–1.5s/row (workers=3) vs ~33s/row shim.
 
 ### Phase 3 — structured output (if Phase 0 says it's real)
 - [ ] Schema-enforced JSON (native or in-process tool trick)

@@ -66,6 +66,7 @@ These were established by live probes on 2026-07-03 (sdk 0.2.110, CLI
 | `catstack.extract_json(reply)` returns a JSON *string* (handles fences/preambles) | feed its output to validate, don't json.loads the raw reply |
 | `system_prompt` option REPLACES Claude Code's default agent persona | our `_SYSTEM_PROMPT` in classify.py is transport scaffolding, not part of the instrument |
 | `setting_sources=[]` prevents CLAUDE.md/user-settings injection | never remove it — without it, running from inside a repo contaminates classifications |
+| `RateLimitEvent` fires on SUCCESSFUL calls too (informational). Only primary `RateLimitInfo.status=='rejected'` blocks. `overage_status=='rejected'` + `overage_disabled_reason=='org_level_disabled'` = overage billing off (org config), NOT a block — call succeeds | detect rate limits on primary `status` only; a returned answer wins over any limit event. Verified 2026-07-03 against a live 74%-used, org-overage-disabled account |
 
 ## 3. Code map
 
@@ -119,13 +120,22 @@ any answer is no → stop and surface it to the maintainer instead of coding.
 during development; re-run `python benchmarks/bench_classify.py --n 50
 --write-results` after a reset. Everything else landed and is live-verified.)*
 
-**Live finding that changed the plan:** the real rejection is a `five_hour`
-cap (reset hours away), not the "minutes-scale window" this section assumed.
-So classify() now **fails fast** when the reported reset (parsed via
-`base.parse_reset_epoch`) is beyond its backoff budget, and only backs off for
-near/unknown resets. Verified against a genuine cap: a 2-row run dropped from
-~200s (futile backoff) to 4.5s. If you read the original item 3 below, this
-refinement supersedes "always retry up to 2 times."
+**Two live findings that changed the plan:**
+1. **Overage false positive (bug, fixed).** Detection first keyed on *any*
+   `RateLimitInfo` with a `rejected` bucket, including `overage_status`. But
+   org-disabled overage (`overage_disabled_reason=="org_level_disabled"`,
+   `isUsingOverage=False`) reports `overage_status=='rejected'` while the
+   primary `status=='allowed'` and **the call succeeds**. The old code aborted
+   every successful call as rate-limited — breaking cat-agent on every call for
+   institutional accounts. Fix: detect only on primary `status=='rejected'`, and
+   a returned answer always wins over an informational limit event. Regression
+   tests in `tests/test_rate_limit.py`. Confirm any detection change against the
+   RAW payload (`RateLimitInfo.raw`), never the parsed summary.
+2. **Window is five_hour, not minutes.** The reset on a genuine exhaustion is
+   hours out, so classify() **fails fast** when the reset (parsed via
+   `base.parse_reset_epoch`) is beyond its backoff budget, backing off only for
+   near/unknown resets. This supersedes the original item 3 "always retry up to
+   2 times" below.
 
 Goal: know how this behaves at realistic N and fail gracefully at limits.
 

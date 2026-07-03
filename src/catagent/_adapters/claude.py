@@ -36,20 +36,23 @@ def _looks_rate_limited_text(text) -> bool:
 
 
 def _rate_limit_detail(info) -> str | None:
-    """Human detail if a RateLimitInfo is a rejection, else None.
+    """Human detail if the PRIMARY usage window is exhausted, else None.
 
-    'allowed' and 'allowed_warning' mean the request still went through (the
-    latter only warns the cap is near) — they are NOT failures and must be
-    ignored. Only a 'rejected' status on the primary or overage bucket blocks.
+    Only ``status == "rejected"`` blocks the current request. 'allowed' and
+    'allowed_warning' both let it through (the latter just warns the cap is
+    near). Crucially, ``overage_status`` is NOT a per-request block: a common
+    steady state is ``overage_status='rejected'`` with
+    ``overage_disabled_reason='org_level_disabled'`` — the org simply turned
+    off spillover billing — while ``status='allowed'`` and the call succeeds.
+    Treating overage rejection as a limit falsely fails every call on such
+    accounts (verified live 2026-07-03), so it is deliberately ignored here.
     """
     if info is None:
         return None
-    status = getattr(info, "status", None)
-    overage = getattr(info, "overage_status", None)
-    if status != "rejected" and overage != "rejected":
+    if getattr(info, "status", None) != "rejected":
         return None
     rtype = getattr(info, "rate_limit_type", None) or "usage"
-    resets = getattr(info, "resets_at", None) or getattr(info, "overage_resets_at", None)
+    resets = getattr(info, "resets_at", None)
     detail = f"{rtype} limit reached"
     if resets:
         detail += f" (resets at epoch {resets})"
@@ -64,18 +67,23 @@ def _api_status_is_rate_limit(status) -> bool:
 def _finalize(text, result_error, rate_limit_detail):
     """Turn collected stream state into the (text, error) contract result.
 
-    Rate limits win over ordinary errors because they are retryable with
-    backoff; a plain error is terminal for the row (modulo json_retries).
+    A real answer always wins: RateLimitEvents are emitted on SUCCESSFUL calls
+    too (they report current utilization), so a present answer with no error
+    means the request went through — never discard it for an informational
+    limit event. Only when there's no answer do limits (retryable via backoff)
+    win over ordinary errors.
     """
+    if text and not result_error:
+        return text, None
     if rate_limit_detail:
         return None, f"{RATE_LIMIT_PREFIX}{rate_limit_detail}"
     if result_error:
         if _looks_rate_limited_text(result_error):
             return None, f"{RATE_LIMIT_PREFIX}{result_error}"
         return None, str(result_error)
-    if not text:
-        return None, "agent returned an empty response"
-    return text, None
+    if text:
+        return text, None
+    return None, "agent returned an empty response"
 
 
 class ClaudeAdapter(AgentAdapter):
