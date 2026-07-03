@@ -126,7 +126,8 @@ is forced on users of the other.
 - [x] Mocked unit tests incl. frozen-prompt byte-parity test (5 passing)
 - [x] Live smoke test: 3 rows, claude-sonnet-5, 4.4s total (1.5s/row
       effective at max_workers=3 vs ~33s/row through the shim), matrix correct
-- [x] Commit (GitHub remote creation pending — user's call on repo visibility)
+- [x] Commit + push — github.com/chrissoria/cat-agent (private for now;
+      flip to public at first PyPI release)
 
 *Note: Phase 2's core (semaphore-bounded concurrency) landed in Phase 1 via
 `_backend.gather_bounded`; Phase 2 now means benchmarks at realistic N +
