@@ -3,6 +3,11 @@
 *Drafted 2026-07-03. Naming is provisional (`cat-agent` / import `catagent`);
 renaming is cheap until first PyPI release.*
 
+> **Continuing this project? Read `IMPLEMENTATION_GUIDE.md` next** — it holds
+> the verified facts (don't re-derive them), the traps already hit, and
+> step-by-step instructions with acceptance criteria for every remaining
+> phase. This file is the why; that file is the how.
+
 ## Why this package exists
 
 cat-stack already has a `claude-code` provider: a ~100-line subprocess shim
