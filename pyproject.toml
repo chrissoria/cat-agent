@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cat-agent"
+dynamic = ["version"]
+description = "Claude Agent SDK backend for the CatLLM ecosystem — classify text through a Claude subscription instead of per-token API billing."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+keywords = ["llm", "classification", "claude", "agent-sdk", "survey"]
+authors = [
+  { name = "Chris Soria", email = "chrissoria@berkeley.edu" },
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "claude-agent-sdk>=0.1.0",
+  "cat-stack>=2.0.1",
+  "pandas",
+]
+
+[project.urls]
+Source = "https://github.com/chrissoria/cat-agent"
+
+[tool.hatch.version]
+path = "src/catagent/__about__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/catagent"]
