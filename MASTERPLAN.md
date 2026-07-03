@@ -143,11 +143,21 @@ rate-limit handling.*
 - [ ] Fall back to prompt-JSON when unsupported
 
 ### Phase 4 — engine + ecosystem integration
+
+*Two-level integration (decided 2026-07-03): DISPATCH lives in cat-stack
+(the engine is the only layer that sees `model_source`, and the domain
+packages / R / Stata all call catstack directly — routing anywhere higher
+would exclude them); DISTRIBUTION lives in cat-llm (the meta-package bundles
+cat-agent for users, same as it bundles the domain packages cat-stack
+doesn't depend on). cat-stack never hard-depends on cat-agent.*
+
 - [ ] cat-stack: `model_source="claude-agent"` lazy-import branch + `[agent]` extra
+- [ ] cat-llm (meta): add `cat-agent` to dependencies so `pip install cat-llm`
+      includes the agent backend
 - [ ] Ensemble support (claude-agent as one model in a panel)
 - [ ] explore/extract/summarize passthroughs
 - [ ] R/Stata/desktop: no changes needed by design — verify
-- [ ] Docs + methodology disclosure notes; first PyPI release
+- [ ] Docs + methodology disclosure notes; first PyPI release (flip repo public)
 
 ### Phase 5 — Codex adapter
 - [ ] Phase-0-style spike on `codex exec` (auth, model selection, JSON
