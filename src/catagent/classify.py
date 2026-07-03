@@ -10,9 +10,13 @@ Design (see MASTERPLAN.md):
   wide 0/1 DataFrame.
 """
 
+import asyncio
+import time
+
 import pandas as pd
 
 from ._adapters import get_adapter
+from ._adapters.base import is_rate_limited, parse_reset_epoch
 from ._backend import gather_bounded
 
 # The system prompt is transport scaffolding (it replaces Claude Code's
@@ -23,6 +27,11 @@ _SYSTEM_PROMPT = (
     "You are a text classification engine. Follow the user's instructions "
     "exactly and reply with only what they ask for."
 )
+
+# First rate-limit backoff, in seconds (doubles each retry). Subscription
+# usage windows are minutes-scale, so the wait starts coarse rather than at
+# API-style sub-second values.
+_RATE_LIMIT_BASE_DELAY = 30.0
 
 
 def classify(
@@ -35,6 +44,7 @@ def classify(
     thinking_budget: int = 0,
     max_workers: int = 4,
     json_retries: int = 2,
+    rate_limit_retries: int = 2,
 ):
     """Classify text rows into 0/1 category indicators via an agent CLI.
 
@@ -53,6 +63,10 @@ def classify(
             engine parity), >0 grades into the agent's effort vocabulary.
         max_workers: concurrent sealed calls in flight.
         json_retries: re-asks per row when the reply isn't valid JSON.
+        rate_limit_retries: on a rate-limited row, how many times to back off
+            (exponential from 30s) and retry before giving up. Consumed before
+            json_retries; set 0 to fail fast on limits. Other in-flight rows
+            are unaffected while one row waits.
 
     Returns:
         pandas.DataFrame with input_data, processing_status, and one 0/1
@@ -86,34 +100,72 @@ def classify(
 
     n_cats = len(categories)
 
+    # Total seconds our backoff schedule (30s, doubling) can bridge. A limit
+    # that resets beyond this can't be waited out here, so retrying is futile.
+    _backoff_budget = sum(
+        _RATE_LIMIT_BASE_DELAY * (2 ** k)
+        for k in range(max(0, int(rate_limit_retries)))
+    )
+
+    def _success(values):
+        return {
+            "status": "success",
+            "indicators": [
+                1 if str(values.get(str(i + 1), "0")) == "1" else 0
+                for i in range(n_cats)
+            ],
+        }
+
     async def _classify_row(text):
-        """One row: sealed call -> parse -> validate, with JSON re-asks."""
+        """One row: sealed call -> parse -> validate.
+
+        Two independent retry budgets. A rate-limited reply spends a
+        `rate_limit_retries` slot: back off (exponential from 30s) and re-ask,
+        without touching json_retries — re-asking a limit immediately would
+        just hit it again. The `await asyncio.sleep` yields the event loop, so
+        other in-flight rows keep going while this one waits. Any other
+        malformed/failed reply spends a `json_retries` slot and re-asks now.
+        """
         prompt = _row_prompt(text)
         last_error = "unknown error"
-        for _attempt in range(1 + max(0, int(json_retries))):
+        rl_retries_left = max(0, int(rate_limit_retries))
+        json_retries_left = max(0, int(json_retries))
+        delay = _RATE_LIMIT_BASE_DELAY
+        while True:
             reply, error = await adapter.one_shot(
                 prompt,
                 system_prompt=_SYSTEM_PROMPT,
                 model=user_model,
                 thinking_budget=thinking_budget,
             )
+            if error and is_rate_limited(error):
+                # A hard cap resetting beyond our backoff budget won't clear by
+                # retrying — fail fast with the resumable message rather than
+                # sleeping through futile re-asks (learned from a live
+                # five_hour-window rejection). Unknown/near resets still back off.
+                reset = parse_reset_epoch(error)
+                futile = reset is not None and (reset - time.time()) > _backoff_budget
+                if rl_retries_left > 0 and not futile:
+                    rl_retries_left -= 1
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                    continue
+                # Backoff exhausted or futile — terminal for this row.
+                return {"status": f"error: {error}", "indicators": [None] * n_cats}
             if error:
                 last_error = error
+            else:
+                parsed = extract_json(reply)
+                ok, values = (False, None)
+                if parsed:
+                    ok, values = validate_classification_json(parsed, n_cats)
+                if ok:
+                    return _success(values)
+                last_error = f"invalid classification JSON in reply: {reply[:120]!r}"
+            if json_retries_left > 0:
+                json_retries_left -= 1
                 continue
-            parsed = extract_json(reply)
-            ok, values = (False, None)
-            if parsed:
-                ok, values = validate_classification_json(parsed, n_cats)
-            if ok:
-                return {
-                    "status": "success",
-                    "indicators": [
-                        1 if str(values.get(str(i + 1), "0")) == "1" else 0
-                        for i in range(n_cats)
-                    ],
-                }
-            last_error = f"invalid classification JSON in reply: {reply[:120]!r}"
-        return {"status": f"error: {last_error}", "indicators": [None] * n_cats}
+            return {"status": f"error: {last_error}", "indicators": [None] * n_cats}
 
     results = gather_bounded(
         [lambda t=t: _classify_row(t) for t in rows], max_workers=max_workers

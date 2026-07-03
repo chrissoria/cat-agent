@@ -138,10 +138,23 @@ is forced on users of the other.
 `_backend.gather_bounded`; Phase 2 now means benchmarks at realistic N +
 rate-limit handling.*
 
-### Phase 2 — concurrency
-- [ ] Semaphore-bounded async gather (max_workers semantics)
-- [ ] Throughput benchmark vs shim (document honestly)
-- [ ] Graceful rate-limit handling + partial results
+### Phase 2 — concurrency + rate-limit handling — DONE 2026-07-03 (throughput sweep deferred)
+- [x] Semaphore-bounded async gather (max_workers semantics) — landed in Phase 1
+      (`_backend.gather_bounded`); per-row isolation confirmed by a mocked test
+      (a throttled row's backoff does not stall healthy rows)
+- [x] Graceful rate-limit handling + partial results — adapter detects the SDK's
+      real signals (`RateLimitEvent.status=="rejected"`, `ResultMessage.
+      api_error_status==429`; `allowed_warning` correctly non-blocking) and
+      surfaces `rate-limited: … (resets at epoch N)`; classify() backs off on a
+      separate budget from json_retries, **fails fast when the reset is beyond
+      the backoff budget** (five_hour caps), and never raises. Live-verified
+      against a genuine exhausted window: 2-row capped run 4.5s vs ~200s pre-fix.
+      37 mocked tests green (incl. real-SDK-object detection + prompt parity).
+- [x] `benchmarks/bench_classify.py` (synthetic data) + `benchmarks/RESULTS.md`
+- [ ] Clean throughput sweep (N=50 haiku, workers∈{1,4,8}) — DEFERRED: the
+      subscription window was exhausted (resets 18:40 PDT). Run after reset:
+      `python benchmarks/bench_classify.py --n 50 --write-results`. Phase-1
+      reference stands: ~1.5s/row (sonnet-5, workers=3) vs ~33s/row shim.
 
 ### Phase 3 — structured output (if Phase 0 says it's real)
 - [ ] Schema-enforced JSON (native or in-process tool trick)

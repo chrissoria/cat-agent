@@ -113,7 +113,19 @@ do (a) keep one-row-sealed-calls, (b) leave the prompt byte-identical,
 (c) keep the output schema unchanged, (d) avoid new hard dependencies? If
 any answer is no → stop and surface it to the maintainer instead of coding.
 
-## 4. Phase 2 — benchmarks + rate-limit handling (next up)
+## 4. Phase 2 — benchmarks + rate-limit handling — DONE 2026-07-03
+
+*(Throughput sweep deferred: the subscription five_hour window was exhausted
+during development; re-run `python benchmarks/bench_classify.py --n 50
+--write-results` after a reset. Everything else landed and is live-verified.)*
+
+**Live finding that changed the plan:** the real rejection is a `five_hour`
+cap (reset hours away), not the "minutes-scale window" this section assumed.
+So classify() now **fails fast** when the reported reset (parsed via
+`base.parse_reset_epoch`) is beyond its backoff budget, and only backs off for
+near/unknown resets. Verified against a genuine cap: a 2-row run dropped from
+~200s (futile backoff) to 4.5s. If you read the original item 3 below, this
+refinement supersedes "always retry up to 2 times."
 
 Goal: know how this behaves at realistic N and fail gracefully at limits.
 
