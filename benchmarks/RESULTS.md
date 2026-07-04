@@ -62,3 +62,14 @@ each).
 
 <!-- bench_classify.py --write-results APPENDS a timestamped run block below;
      it never overwrites the narrative above. -->
+
+## Throughput run — 2026-07-04 01:56 UTC
+
+- Model: `claude-haiku-4-5`  |  rows: 50  |  synthetic 'reason for moving' data
+- claude-agent-sdk: 0.2.110  |  Claude CLI: 2.1.197 (Claude Code)
+
+| max_workers | wall time | rows/s | errors |
+|---:|---:|---:|---:|
+| 1 | 145.1s | 0.34 | 0 |
+| 4 | 36.2s | 1.38 | 0 |
+| 8 | 20.5s | 2.44 | 0 |

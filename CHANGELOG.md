@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-03
+
 - Initial scaffold: MASTERPLAN.md (design + step tracker), package skeleton.
 - classify() v0: one-row-sealed calls, frozen prompt, bounded concurrency,
   JSON re-asks, wide 0/1 DataFrame output.
