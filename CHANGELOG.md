@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-04
+
+- Multimodal `one_shot(images=...)`: image input via the Agent SDK's streaming-
+  input dict (base64 image content blocks), verified live against the model.
+  Additive — the text-only path is unchanged; the AgentAdapter base contract
+  carries the `images` param. Enables cat-stack image + PDF classification on the
+  Claude subscription (no API key).
+
 ## [0.1.0] - 2026-07-03
 
 - Initial scaffold: MASTERPLAN.md (design + step tracker), package skeleton.
