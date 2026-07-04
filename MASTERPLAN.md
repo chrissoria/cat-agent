@@ -1,7 +1,7 @@
 # cat-agent — Claude Agent SDK backend for the CatLLM ecosystem
 
-*Drafted 2026-07-03. Naming is provisional (`cat-agent` / import `catagent`);
-renaming is cheap until first PyPI release.*
+*Drafted 2026-07-03. Published on PyPI as `cat-claws` (import `catclaws`); the
+GitHub source repo remains `cat-agent`.*
 
 > **Continuing this project? Read `IMPLEMENTATION_GUIDE.md` next** — it holds
 > the verified facts (don't re-derive them), the traps already hit, and
@@ -64,9 +64,9 @@ interface from day one — everything above the adapter is agent-agnostic.
 
 ```
 cat-stack classify(model_source="claude-agent" | "codex-agent" …)
-   └─ lazy import catagent  → backend satisfies the same (text, error)
+   └─ lazy import catclaws  → backend satisfies the same (text, error)
                               contract complete() returns
-catagent
+catclaws
    ├─ _adapters/
    │    base.py     AgentAdapter: one_shot(prompt, system_prompt, model,
    │                opts) -> (text, error). Sealed-session semantics are part

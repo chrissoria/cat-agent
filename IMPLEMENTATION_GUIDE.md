@@ -31,10 +31,10 @@ contradicts the code, trust the code and update this file.*
 ## 1. What exists and works (verified live 2026-07-03)
 
 - Environment: macOS, anaconda python (`/Users/chrissoria/anaconda3/bin/python3`).
-  `catagent` and `catstack` are installed editable in it. Claude Code CLI
+  `catclaws` and `catstack` are installed editable in it. Claude Code CLI
   2.1.197 is installed and logged in (subscription auth — no API key needed
   for agent calls). `claude-agent-sdk` 0.2.110 is installed.
-- `catagent.classify()` works end to end: 3 rows on `claude-sonnet-5`,
+- `catclaws.classify()` works end to end: 3 rows on `claude-sonnet-5`,
   `max_workers=3`, 4.4s total, correct matrix.
 - Mocked tests: `cd ~/Documents/Research/cat-agent && python -m pytest tests/ -q`
   → 5 passing. Run them after every change.
@@ -42,8 +42,8 @@ contradicts the code, trust the code and update this file.*
 
   ```bash
   python3 -c "
-  import catagent
-  df = catagent.classify(
+  import catclaws
+  df = catclaws.classify(
       input_data=['I moved for a new job', 'Rent got too expensive', 'Closer to my parents'],
       categories=['Employment', 'Cost of living', 'Family', 'Other'],
       user_model='claude-sonnet-5', description='Why did you move?', max_workers=3)
@@ -71,7 +71,7 @@ These were established by live probes on 2026-07-03 (sdk 0.2.110, CLI
 ## 3. Code map
 
 ```
-src/catagent/
+src/catclaws/
   __about__.py        version 0.0.1 — single source of truth (hatch reads it)
   __init__.py         exports classify
   _adapters/base.py   AgentAdapter.one_shot(prompt, system_prompt, model,
@@ -102,7 +102,7 @@ don't build on a broken base) and after every substantive change:
 ```bash
 cd ~/Documents/Research/cat-agent
 python -m pytest tests/ -q                  # ALL green, incl. TestPromptParity
-python -c "import catagent; print(catagent.__version__)"   # imports clean
+python -c "import catclaws; print(catclaws.__version__)"   # imports clean
 git status --short                          # only files YOU meant to touch
 ```
 
@@ -229,8 +229,8 @@ MASTERPLAN). Mirror the existing `claude-code` branches exactly — anchors in
   ```python
   if self.provider == "claude-agent":
       try:
-          from catagent._adapters import get_adapter
-          from catagent._backend import gather_bounded
+          from catclaws._adapters import get_adapter
+          from catclaws._backend import gather_bounded
       except ImportError:
           return None, ("cat-agent is not installed. "
                         "Run: pip install cat-stack[agent]")
@@ -242,11 +242,11 @@ MASTERPLAN). Mirror the existing `claude-code` branches exactly — anchors in
   module-global event loop.
 - `text_functions_ensemble.py` ~line 653: the `claude-code` validation
   branch (CLI availability check, api_key not required) — add
-  `claude-agent` alongside it, checking catagent importability instead.
+  `claude-agent` alongside it, checking catclaws importability instead.
 - pyproject: `[project.optional-dependencies] agent = ["cat-agent>=0.1.0"]`.
 - cat-llm meta pyproject: add `cat-agent>=0.1.0` to `dependencies`.
 - Tests: mocked test in cat-stack (`tests/test_claude_agent_dispatch.py`)
-  patching catagent; live test: `catstack.classify(model_source="claude-agent")`
+  patching catclaws; live test: `catstack.classify(model_source="claude-agent")`
   3 rows. Ensemble test: one API model + claude-agent in a panel.
 - Ecosystem rules: cat-stack release = CHANGELOG entry + version bump at
   batch end (see cat-stack/CLAUDE.md); cat-agent needs a PyPI release FIRST
