@@ -95,6 +95,7 @@ class ClaudeAdapter(AgentAdapter):
         system_prompt: str | None,
         model: str,
         thinking_budget: int = 0,
+        images: list | None = None,
     ) -> tuple[str | None, str | None]:
         try:
             from claude_agent_sdk import (
@@ -136,12 +137,40 @@ class ClaudeAdapter(AgentAdapter):
         else:
             opts_kwargs["thinking"] = ThinkingConfigDisabled(type="disabled")
 
+        def _make_query_prompt():
+            """Fresh query input per call (a generator can't be re-iterated on
+            the thinking-fallback retry). Text -> the plain string; images -> a
+            streaming-input message carrying base64 image content blocks (the
+            shape verified against the SDK)."""
+            if not images:
+                return prompt
+
+            async def _stream():
+                content = [{"type": "text", "text": prompt}]
+                for im in images:
+                    content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": im.get("media_type", "image/png"),
+                            "data": im["data"],
+                        },
+                    })
+                yield {
+                    "type": "user",
+                    "message": {"role": "user", "content": content},
+                    "parent_tool_use_id": None,
+                    "session_id": "catclaws",
+                }
+
+            return _stream()
+
         async def _run(options):
             """Consume one query stream -> (text, result_error, rate_limit_detail)."""
             text_parts = []
             result_error = None
             rate_limit_detail = None
-            async for message in query(prompt=prompt, options=options):
+            async for message in query(prompt=_make_query_prompt(), options=options):
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, TextBlock):

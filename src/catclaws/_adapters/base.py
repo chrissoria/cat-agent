@@ -57,11 +57,17 @@ class AgentAdapter:
         system_prompt: str | None,
         model: str,
         thinking_budget: int = 0,
+        images: list | None = None,
     ) -> tuple[str | None, str | None]:
         """Run one sealed call; return (text, error) — exactly one is None.
 
         thinking_budget follows cat-stack semantics: 0 disables reasoning,
         >0 grades into the provider's effort vocabulary.
+
+        images (optional): a list of ``{"media_type": str, "data": <base64>}``
+        for multimodal (image/PDF-page) classification. When given, the adapter
+        sends the images alongside the text prompt; when None, it is a plain
+        text call.
 
         Rate-limit failures must return an error string prefixed with
         ``RATE_LIMIT_PREFIX`` so the caller can back off (see contract note
