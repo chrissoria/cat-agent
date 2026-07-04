@@ -18,8 +18,8 @@ from unittest.mock import patch
 
 import pytest
 
-from catagent._adapters.base import RATE_LIMIT_PREFIX, parse_reset_epoch
-from catagent._adapters.claude import (
+from catclaws._adapters.base import RATE_LIMIT_PREFIX, parse_reset_epoch
+from catclaws._adapters.claude import (
     ClaudeAdapter,
     _api_status_is_rate_limit,
     _finalize,

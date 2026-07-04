@@ -1,4 +1,4 @@
-"""catagent.classify() — one-row-at-a-time classification through an agent CLI.
+"""catclaws.classify() — one-row-at-a-time classification through an agent CLI.
 
 Design (see MASTERPLAN.md):
 - One row = one sealed, fresh-context agent call. Throughput comes from

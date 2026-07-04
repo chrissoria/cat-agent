@@ -1,12 +1,12 @@
-"""Mocked tests for catagent.classify() — no live agent CLI needed."""
+"""Mocked tests for catclaws.classify() — no live agent CLI needed."""
 
 import asyncio
 from unittest.mock import patch
 
 import pytest
 
-import catagent
-from catagent._adapters.base import AgentAdapter
+import catclaws
+from catclaws._adapters.base import AgentAdapter
 
 # Captured before any test patches asyncio.sleep, so the recorder can still
 # yield to the event loop with the genuine (zero-delay) sleep.
@@ -57,8 +57,8 @@ class FakeAdapter(AgentAdapter):
 
 
 def _run(adapter, rows=None, cats=None, **kw):
-    with patch("catagent.classify.get_adapter", return_value=adapter):
-        return catagent.classify(
+    with patch("catclaws.classify.get_adapter", return_value=adapter):
+        return catclaws.classify(
             input_data=rows or ["job move", "family move"],
             categories=cats or ["Employment", "Family"],
             **kw,
@@ -95,9 +95,9 @@ class TestMatrix:
 
     def test_empty_inputs_raise(self):
         with pytest.raises(ValueError):
-            catagent.classify(input_data=[], categories=["A"])
+            catclaws.classify(input_data=[], categories=["A"])
         with pytest.raises(ValueError):
-            catagent.classify(input_data=["x"], categories=[])
+            catclaws.classify(input_data=["x"], categories=[])
 
 
 class TestPromptParity:

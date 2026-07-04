@@ -1,11 +1,20 @@
-# cat-agent
+# cat-claws
 
 Agent-CLI backend for the [CatLLM ecosystem](https://github.com/chrissoria/cat-llm):
 classify text through a **Claude subscription** (via the Claude Agent SDK)
 instead of per-token API billing. An OpenAI Codex adapter is planned.
 
-**Status: pre-alpha, under active development.** See `MASTERPLAN.md` for the
+*(Distribution name `cat-claws`; imports as `catclaws`. Source repo:
+[cat-agent](https://github.com/chrissoria/cat-agent).)*
+
+**Status: alpha, under active development.** See `MASTERPLAN.md` for the
 design and step tracker.
+
+## Install
+
+```bash
+pip install cat-claws
+```
 
 ## Design in one paragraph
 
@@ -20,9 +29,9 @@ validity).
 ## Quick start (Phase 1)
 
 ```python
-import catagent
+import catclaws
 
-df = catagent.classify(
+df = catclaws.classify(
     input_data=["I moved for a new job", "Rent got too expensive"],
     categories=["Employment", "Cost of living", "Other"],
     user_model="claude-sonnet-5",   # any model your Claude login can use

@@ -1,4 +1,4 @@
-"""Throughput benchmark for catagent.classify().
+"""Throughput benchmark for catclaws.classify().
 
 Live, subscription-backed. Classifies N SYNTHETIC one-liner rows (never real
 study data) on a haiku-class model at several max_workers settings and reports
@@ -20,7 +20,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 
-import catagent
+import catclaws
 
 CATEGORIES = ["Employment", "Cost of living", "Family", "Other"]
 
@@ -63,7 +63,7 @@ def run(n, workers_list, model, description="Why did you move?"):
     results = []
     for w in workers_list:
         t0 = time.perf_counter()
-        df = catagent.classify(
+        df = catclaws.classify(
             rows, CATEGORIES, user_model=model,
             description=description, max_workers=w,
         )
