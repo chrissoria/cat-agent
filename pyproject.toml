@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "cat-claws"
 dynamic = ["version"]
-description = "Claude Agent SDK backend for the CatLLM ecosystem — classify text through a Claude subscription instead of per-token API billing."
+description = "Agent-SDK backends for the CatLLM ecosystem — classify text through a Claude or ChatGPT subscription instead of per-token API billing."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
-keywords = ["llm", "classification", "claude", "agent-sdk", "survey"]
+keywords = ["llm", "classification", "claude", "codex", "chatgpt", "agent-sdk", "survey"]
 authors = [
   { name = "Chris Soria", email = "chrissoria@berkeley.edu" },
 ]
@@ -21,10 +21,17 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-  "claude-agent-sdk>=0.1.0",
   "cat-stack>=2.0.1",
   "pandas",
 ]
+
+# Extras split (MASTERPLAN Phase 5): neither agent SDK is forced on users of
+# the other. BREAKING for plain `pip install cat-claws` upgraders who use the
+# Claude backend — install "cat-claws[claude]" (cat-stack's [agent] extra and
+# cat-llm's dependency pin do this for you).
+[project.optional-dependencies]
+claude = ["claude-agent-sdk>=0.1.0"]
+codex = ["openai-codex>=0.1.0b3"]
 
 [project.urls]
 Source = "https://github.com/chrissoria/cat-agent"

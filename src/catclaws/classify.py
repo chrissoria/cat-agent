@@ -37,7 +37,7 @@ _RATE_LIMIT_BASE_DELAY = 30.0
 def classify(
     input_data,
     categories,
-    user_model: str = "claude-sonnet-5",
+    user_model: str | None = None,
     agent: str = "claude",
     description: str = "",
     multi_label: bool = True,
@@ -54,8 +54,12 @@ def classify(
     Args:
         input_data: list of text rows (or pandas Series).
         categories: list of category names.
-        user_model: model the agent should use (e.g. "claude-sonnet-5").
-        agent: which agent CLI answers ("claude"; "codex" planned).
+        user_model: model the agent should use. None (default) resolves to
+            the agent's pinned default — "claude-sonnet-5" for claude,
+            "gpt-5.5" for codex.
+        agent: which agent answers — "claude" (Claude subscription via
+            claude-agent-sdk) or "codex" (ChatGPT subscription via the
+            openai-codex SDK).
         description: context about the data (survey question etc.) — feeds
             the same "Context:" line as the API path.
         multi_label: multiple categories per row (default) vs single best.
@@ -84,6 +88,12 @@ def classify(
         raise ValueError("categories is empty")
 
     adapter = get_adapter(agent)
+    if user_model is None:
+        user_model = adapter.default_model
+    if user_model is None:  # defensive: every shipped adapter pins a default
+        raise ValueError(
+            f"pass user_model= (agent {agent!r} declares no default model)"
+        )
 
     # Same prompt components as the engine builds them.
     categories_str = "\n".join(f"{i + 1}. {cat}" for i, cat in enumerate(categories))

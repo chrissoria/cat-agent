@@ -57,9 +57,9 @@ around `claude -p`. It works, but it is under-engineered for research use:
 ## Architecture
 
 Multi-agent by design: Claude (via `claude-agent-sdk`) is the first adapter;
-OpenAI Codex is a planned second (its `codex exec` non-interactive mode fits
-the same one-shot contract). The seam between "the classification pipeline"
-and "which agent CLI answers one prompt" is therefore an explicit adapter
+OpenAI Codex (via the official `openai-codex` SDK) is the second — built
+2026-07-11, see `OPENAI_MASTERPLAN.md`. The seam between "the classification
+pipeline" and "which agent answers one prompt" is an explicit adapter
 interface from day one — everything above the adapter is agent-agnostic.
 
 ```
@@ -72,7 +72,7 @@ catclaws
    │                opts) -> (text, error). Sealed-session semantics are part
    │                of the contract (no tools, fresh context, single turn).
    │    claude.py   claude-agent-sdk implementation (Phase 1)
-   │    codex.py    codex CLI implementation (later phase)
+   │    codex.py    openai-codex SDK implementation (Phase 5, 2026-07-11)
    ├─ _backend.py   agent-agnostic plumbing: adapter registry, dedicated
    │                event loop, semaphore-bounded concurrency, retries
    ├─ classify.py   standalone classify(agent="claude") (Phase 1: usable
@@ -81,13 +81,13 @@ catclaws
    └─ __about__.py  version (single source of truth, hatch)
 ```
 
-Adapter-contract notes for Codex (recorded now, built later): `codex exec`
-supports non-interactive one-shots with JSON event output and model
-selection; auth via ChatGPT subscription login mirrors the Claude story
-(subscription-based classification). Sandbox/approval flags are the sealed-
-session equivalent. `claude-agent-sdk` stays an install extra once a second
-adapter exists (`cat-agent[claude]`, `cat-agent[codex]`) so neither CLI's SDK
-is forced on users of the other.
+Adapter-contract notes for Codex (as built, 2026-07-11): the official
+`openai-codex` Python SDK superseded the original `codex exec` subprocess
+plan (same SDK-over-shim reasoning as Phase 0). Auth via ChatGPT subscription
+login mirrors the Claude story. `Sandbox.read_only` + `ApprovalMode.deny_all`
++ empty-tempdir cwd + `ephemeral=True` are the sealed-session equivalent.
+The extras split shipped in 0.3.0 (`cat-claws[claude]`, `cat-claws[codex]`)
+so neither SDK is forced on users of the other.
 
 ## Known risks / open questions
 
@@ -138,7 +138,7 @@ is forced on users of the other.
 `_backend.gather_bounded`; Phase 2 now means benchmarks at realistic N +
 rate-limit handling.*
 
-### Phase 2 — concurrency + rate-limit handling — DONE 2026-07-03 (throughput sweep deferred)
+### Phase 2 — concurrency + rate-limit handling — DONE 2026-07-03
 - [x] Semaphore-bounded async gather (max_workers semantics) — landed in Phase 1
       (`_backend.gather_bounded`); per-row isolation confirmed by a mocked test
       (a throttled row's backoff does not stall healthy rows)
@@ -156,10 +156,10 @@ rate-limit handling.*
       over an informational limit event. Live-confirmed: 3-row classify 3/3
       success, correct matrix, 4.3s (~1.4s/row). 39 mocked tests green.
 - [x] `benchmarks/bench_classify.py` (synthetic data) + `benchmarks/RESULTS.md`
-- [ ] Clean throughput sweep (N=50 haiku, workers∈{1,4,8}) — not yet run (held
-      off to spare the maintainer's actively-used window; best on a fresh one):
-      `python benchmarks/bench_classify.py --n 50 --write-results`. Phase-1
-      reference stands: ~1.4–1.5s/row (workers=3) vs ~33s/row shim.
+- [x] Clean throughput sweep (N=50 haiku, workers∈{1,4,8}) — run 2026-07-04:
+      workers=1: 145.1s / 0.34 rows/s; workers=4: 36.2s / 1.38 rows/s;
+      workers=8: 20.5s / 2.44 rows/s; 0 errors. See
+      `benchmarks/RESULTS.md`.
 
 ### Phase 3 — structured output (if Phase 0 says it's real)
 - [ ] Schema-enforced JSON (native or in-process tool trick)
@@ -183,10 +183,25 @@ doesn't depend on). cat-stack never hard-depends on cat-agent.*
 - [ ] Docs + methodology disclosure notes; first PyPI release (flip repo public)
 
 ### Phase 5 — Codex adapter
-- [ ] Phase-0-style spike on `codex exec` (auth, model selection, JSON
-      output, sandbox flags, startup cost, context isolation)
-- [ ] `_adapters/codex.py` implementing the same AgentAdapter contract
-- [ ] `model_source="codex-agent"` in cat-stack; extras split
-      (`cat-agent[claude]` / `cat-agent[codex]`)
-- [ ] Cross-agent parity test: same rows, same frozen prompt, Claude vs
-      Codex adapters — document divergence for methodology disclosure
+
+*Execution plan authored 2026-07-10: see `OPENAI_MASTERPLAN.md` — a
+self-contained handoff (SDK dossier, live-spike checklist with fill-in
+slots, per-repo wiring specs, gates). Design update since this section was
+sketched: OpenAI now ships an official `openai-codex` Python SDK (async
+client over the codex app-server, bundled binary, reuses `codex login`);
+the spike and adapter target that SDK instead of subprocess `codex exec` —
+the same SDK-over-shim call Phase 0 made for Claude.*
+
+- [x] Execution plan authored (`OPENAI_MASTERPLAN.md`, 2026-07-10)
+- [x] Phase-0-style spike on the `openai-codex` SDK — DONE 2026-07-11, all 11
+      probes PASS (isolation, subscription auth, per-call effort override;
+      findings recorded in OPENAI_MASTERPLAN §3, script committed)
+- [x] `_adapters/codex.py` implementing the same AgentAdapter contract
+      (sealed read-only/deny-all/empty-cwd/ephemeral session; effort "none"
+      at thinking_budget=0; typed usage-limit mapping)
+- [x] `model_source="codex-agent"` in cat-stack (table-driven
+      `_call_agent_backend`, all claude-agent sites mirrored); extras split
+      shipped (`cat-claws[claude]` / `cat-claws[codex]`, 0.3.0)
+- [x] Cross-agent parity run 2026-07-11: 24 synthetic rows, frozen prompt —
+      96/96 cell agreement, kappa 1.000, 0 errors (claude-sonnet-5 vs
+      gpt-5.5); benchmarks/RESULTS.md + README methodology note

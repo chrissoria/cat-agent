@@ -1,9 +1,12 @@
 from .base import AgentAdapter
 from .claude import ClaudeAdapter
+from .codex import CodexAdapter
 
-# Adapter registry — Codex joins here in a later phase.
+# Adapter registry. Class imports are safe without either SDK installed:
+# both modules import their SDK lazily inside one_shot().
 ADAPTERS = {
     "claude": ClaudeAdapter,
+    "codex": CodexAdapter,
 }
 
 

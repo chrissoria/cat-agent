@@ -73,3 +73,21 @@ each).
 | 1 | 145.1s | 0.34 | 0 |
 | 4 | 36.2s | 1.38 | 0 |
 | 8 | 20.5s | 2.44 | 0 |
+
+## Cross-agent parity — 2026-07-11 09:42 UTC
+
+- 24 synthetic rows, frozen prompt, thinking_budget=0, max_workers=4
+- claude: `claude-sonnet-5` (claude-agent-sdk 0.2.110; 2.1.197 (Claude Code)) — 21.9s, 0 errors
+- codex: `gpt-5.5` (openai-codex 0.1.0b3; codex-cli 0.137.0-alpha.4 (bundled)) — 36.7s, 0 errors
+
+- Overall: 100.0% cell agreement, kappa 1.000 (24 rows, 96 cells)
+
+| category | agreement | kappa |
+|---|---:|---:|
+| Employment | 100.0% | 1.000 |
+| Cost of living | 100.0% | 1.000 |
+| Family | 100.0% | 1.000 |
+| Other | 100.0% | 1.000 |
+
+No disagreeing rows.
+

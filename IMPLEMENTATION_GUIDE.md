@@ -68,6 +68,26 @@ These were established by live probes on 2026-07-03 (sdk 0.2.110, CLI
 | `setting_sources=[]` prevents CLAUDE.md/user-settings injection | never remove it — without it, running from inside a repo contaminates classifications |
 | `RateLimitEvent` fires on SUCCESSFUL calls too (informational). Only primary `RateLimitInfo.status=='rejected'` blocks. `overage_status=='rejected'` + `overage_disabled_reason=='org_level_disabled'` = overage billing off (org config), NOT a block — call succeeds | detect rate limits on primary `status` only; a returned answer wins over any limit event. Verified 2026-07-03 against a live 74%-used, org-overage-disabled account |
 
+## 2b. Verified facts — openai-codex SDK (probed live 2026-07-11, v0.1.0b3)
+
+Full recorded findings live in `OPENAI_MASTERPLAN.md` §3 (P0–P10) with the
+committed probe script `test_live_codex_spike.py`. The load-bearing ones:
+
+| Fact | Consequence |
+|---|---|
+| Import name `openai_codex`; bundled binary via `codex_cli_bin` (SDK ignores any homebrew codex) | `pip install "cat-claws[codex]"` is self-contained |
+| Auth reuses `codex login` ChatGPT creds; works with `OPENAI_API_KEY` stripped from env | subscription billing confirmed; no key handling in the adapter |
+| Fresh `thread_start()` threads share nothing | one-row-sealed-call design sound (Gate 1) |
+| `AsyncCodex.thread_start` is a COROUTINE (sync client's is a plain method; `inspect.signature` hides this) | await it — an un-awaited handle fails only LIVE, mocks won't catch it (the Gate-3 venv smoke did) |
+| `TurnStatus`/enums are plain enums | compare `.value`, never the bare string (silently False) |
+| `AGENTS.md` in the cwd IS injected into replies; an empty tempdir cwd blocks it | empty-tempdir `cwd` is mandatory (the `setting_sources=[]` analog) |
+| `base_instructions` REPLACES the default persona | it carries `_SYSTEM_PROMPT`, same role as on the Claude path |
+| Per-turn `effort="none"` → 0 reasoning tokens, beats `~/.codex/config.toml`'s global `xhigh`; models() only advertises low..xhigh but "none" works | always pass effort explicitly; never `effort=None` (inherits user config); reject → one retry at "low" |
+| `TurnError.codex_error_info.root` carries `usageLimitExceeded`; `RateLimitWindow.resets_at` exists but isn't on the TurnError in 0.1.0b3 | typed limit detection + text-marker fallback; no reset suffix → classify() uses bounded backoff |
+| Client construct ≈0.29s; one client multiplexes concurrent turns | client-per-call is cheap and stateless-contract-clean |
+| Image input is file-PATH based (`LocalImageInput`), works live | base64-contract mismatch → images error clearly; tempfile shim is the recorded follow-up |
+| ~14.8k input tokens per call even for one-liners (codex scaffold) | inherent transport overhead; disclose in methodology notes |
+
 ## 3. Code map
 
 ```
@@ -243,13 +263,13 @@ MASTERPLAN). Mirror the existing `claude-code` branches exactly — anchors in
 - `text_functions_ensemble.py` ~line 653: the `claude-code` validation
   branch (CLI availability check, api_key not required) — add
   `claude-agent` alongside it, checking catclaws importability instead.
-- pyproject: `[project.optional-dependencies] agent = ["cat-agent>=0.1.0"]`.
-- cat-llm meta pyproject: add `cat-agent>=0.1.0` to `dependencies`.
+- pyproject: `[project.optional-dependencies] agent = ["cat-claws>=0.1.0"]`.
+- cat-llm meta pyproject: add `cat-claws>=0.1.0` to `dependencies`.
 - Tests: mocked test in cat-stack (`tests/test_claude_agent_dispatch.py`)
   patching catclaws; live test: `catstack.classify(model_source="claude-agent")`
   3 rows. Ensemble test: one API model + claude-agent in a panel.
 - Ecosystem rules: cat-stack release = CHANGELOG entry + version bump at
-  batch end (see cat-stack/CLAUDE.md); cat-agent needs a PyPI release FIRST
+  batch end (see cat-stack/CLAUDE.md); cat-claws needs a PyPI release FIRST
   (flip repo public, `python -m build`, twine with PYPI_API_TOKEN from
   cat-stack/.env, TWINE_USERNAME=__token__).
 
@@ -263,7 +283,7 @@ downstream packages — check after EVERY edit there, not at the end):**
    (untracked WIP test, fails on clean HEAD too — NOT yours to fix).
    Any OTHER failure = your change broke the engine; revert and rethink.
 2. The no-install path must degrade politely BEFORE testing the happy path:
-   temporarily `pip uninstall -y cat-agent`, run
+   temporarily `pip uninstall -y cat-claws`, run
    `catstack.classify(model_source="claude-agent", ...)` → must return
    error rows mentioning `pip install cat-stack[agent]`, never a raw
    ImportError traceback. Reinstall (`pip install -e ~/Documents/Research/cat-agent`)
@@ -280,7 +300,20 @@ downstream packages — check after EVERY edit there, not at the end):**
    `dependencies` in cat-llm/pyproject.toml. Meta-package mistakes ship to
    every user; keep the diff minimal and reviewed.
 
-## 7. Phase 5 — Codex adapter (later)
+## 7. Phase 5 — Codex adapter — DONE 2026-07-11
+
+> **Executed per `OPENAI_MASTERPLAN.md`** (authored 2026-07-10) — spike
+> findings, gates, and the as-built record live there; verified SDK facts in
+> §2b above. All three sanity gates below held: spike-before-code (Gate 1),
+> tests parameterized not copy-pasted (`tests/test_adapter_contract.py`),
+> and fresh-venv extras isolation (three venvs, live smokes both backends).
+> Traps encountered: `AsyncCodex.thread_start` is a coroutine (mocks passed,
+> only the live venv smoke caught the missing await); `TurnStatus` enum vs
+> string compares silently False; and the fresh-venv gate exposed that
+> PUBLISHED cat-stack couldn't `import catstack` in a clean env (undeclared
+> `jellyfish` dep — fixed in cat-stack's unreleased batch). The sketch below
+> is the original plan, kept for history (it targeted subprocess
+> `codex exec`; the official `openai-codex` SDK superseded that).
 
 Spike first, code second (`codex exec` non-interactive mode: auth story,
 model flag, JSON/event output, sandbox flags, startup cost, context
@@ -296,7 +329,7 @@ whether the design is even possible, same as Phase 0 did for Claude.
 (2) The Codex adapter must pass the SAME mocked test suite: parameterize
 `tests/test_classify.py` over adapters rather than duplicating tests — if
 you're copy-pasting the test file, wrong direction. (3) After the extras
-split, `pip install cat-agent[claude]` in a fresh venv must work WITHOUT
+split, `pip install "cat-claws[claude]"` in a fresh venv must work WITHOUT
 any codex packages present (and vice versa) — import-time cross-adapter
 leakage means `_adapters/__init__.py` needs lazier imports.
 

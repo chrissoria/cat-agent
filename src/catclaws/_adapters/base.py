@@ -8,9 +8,8 @@ sealed-session semantics baked into the contract:
 - a custom system prompt replacing the agent's own scaffolding.
 
 Everything above the adapter (prompt building, JSON parsing, the output
-matrix, concurrency) is agent-agnostic. The Claude adapter is the first
-implementation; an OpenAI Codex adapter (`codex exec`) is planned against
-this same contract.
+matrix, concurrency) is agent-agnostic. The Claude adapter (claude-agent-sdk)
+and the Codex adapter (openai-codex SDK) both implement this contract.
 """
 
 import re
@@ -46,10 +45,60 @@ def parse_reset_epoch(error: str | None) -> int | None:
     return int(m.group(1)) if m else None
 
 
+# --- agent-generic result/error helpers (used by every adapter) -------------
+#
+# These lived in claude.py first; they contain nothing Claude-specific and
+# duplicating them per adapter is exactly the near-twin drift this ecosystem
+# got burned by. claude.py and codex.py import them from here.
+
+_RATE_LIMIT_TEXT_MARKERS = (
+    "rate limit",
+    "rate-limit",
+    "rate_limit",
+    "usage limit",
+    "too many requests",
+    "quota exceeded",
+    "429",
+)
+
+
+def _looks_rate_limited_text(text) -> bool:
+    """Text fallback: does an error/result string read like a rate limit?"""
+    if not text:
+        return False
+    low = str(text).lower()
+    return any(marker in low for marker in _RATE_LIMIT_TEXT_MARKERS)
+
+
+def _finalize(text, result_error, rate_limit_detail):
+    """Turn collected call state into the (text, error) contract result.
+
+    A real answer always wins: limit signals can arrive on SUCCESSFUL calls
+    too (they report current utilization), so a present answer with no error
+    means the request went through — never discard it for an informational
+    limit event. Only when there's no answer do limits (retryable via backoff)
+    win over ordinary errors.
+    """
+    if text and not result_error:
+        return text, None
+    if rate_limit_detail:
+        return None, f"{RATE_LIMIT_PREFIX}{rate_limit_detail}"
+    if result_error:
+        if _looks_rate_limited_text(result_error):
+            return None, f"{RATE_LIMIT_PREFIX}{result_error}"
+        return None, str(result_error)
+    if text:
+        return text, None
+    return None, "agent returned an empty response"
+
+
 class AgentAdapter:
     """One sealed agent call. Implementations are stateless."""
 
     name: str = "base"
+    # Model used when classify()'s user_model is None. A pinned string per
+    # adapter (research reproducibility over account-default drift).
+    default_model: str | None = None
 
     async def one_shot(
         self,

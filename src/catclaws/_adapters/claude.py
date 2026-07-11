@@ -4,7 +4,13 @@ Requires Claude Code installed and logged in (`claude` on PATH). Calls run
 through the user's Claude subscription, not an API key.
 """
 
-from .base import RATE_LIMIT_PREFIX, AgentAdapter
+from .base import (  # noqa: F401 — helper re-exports keep older imports valid
+    RATE_LIMIT_PREFIX,
+    AgentAdapter,
+    _RATE_LIMIT_TEXT_MARKERS,
+    _finalize,
+    _looks_rate_limited_text,
+)
 
 # --- rate-limit detection (pure helpers, unit-tested in tests/test_rate_limit.py) ---
 #
@@ -15,24 +21,8 @@ from .base import RATE_LIMIT_PREFIX, AgentAdapter
 #   2. a `ResultMessage.api_error_status` of 429 (too many requests);
 #   3. as a last resort, rate-limit wording in an error/result string.
 # All three funnel into the RATE_LIMIT_PREFIX error so classify() backs off.
-
-_RATE_LIMIT_TEXT_MARKERS = (
-    "rate limit",
-    "rate-limit",
-    "rate_limit",
-    "usage limit",
-    "too many requests",
-    "quota exceeded",
-    "429",
-)
-
-
-def _looks_rate_limited_text(text) -> bool:
-    """Text fallback: does an error/result string read like a rate limit?"""
-    if not text:
-        return False
-    low = str(text).lower()
-    return any(marker in low for marker in _RATE_LIMIT_TEXT_MARKERS)
+# The agent-generic pieces (_looks_rate_limited_text, _finalize, the text
+# markers) live in base.py and are re-imported above.
 
 
 def _rate_limit_detail(info) -> str | None:
@@ -64,30 +54,9 @@ def _api_status_is_rate_limit(status) -> bool:
     return status == 429
 
 
-def _finalize(text, result_error, rate_limit_detail):
-    """Turn collected stream state into the (text, error) contract result.
-
-    A real answer always wins: RateLimitEvents are emitted on SUCCESSFUL calls
-    too (they report current utilization), so a present answer with no error
-    means the request went through — never discard it for an informational
-    limit event. Only when there's no answer do limits (retryable via backoff)
-    win over ordinary errors.
-    """
-    if text and not result_error:
-        return text, None
-    if rate_limit_detail:
-        return None, f"{RATE_LIMIT_PREFIX}{rate_limit_detail}"
-    if result_error:
-        if _looks_rate_limited_text(result_error):
-            return None, f"{RATE_LIMIT_PREFIX}{result_error}"
-        return None, str(result_error)
-    if text:
-        return text, None
-    return None, "agent returned an empty response"
-
-
 class ClaudeAdapter(AgentAdapter):
     name = "claude"
+    default_model = "claude-sonnet-5"
 
     async def one_shot(
         self,
@@ -112,7 +81,7 @@ class ClaudeAdapter(AgentAdapter):
             )
         except ImportError as e:
             return None, (
-                "claude-agent-sdk is not installed. Run: pip install cat-agent "
+                'claude-agent-sdk is not installed. Run: pip install "cat-claws[claude]" '
                 f"(original error: {e})"
             )
 

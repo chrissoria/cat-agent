@@ -57,6 +57,9 @@ class FakeAdapter(AgentAdapter):
 
 
 def _run(adapter, rows=None, cats=None, **kw):
+    # Fakes don't pin a default_model, so name one explicitly (user_model=None
+    # resolves via adapter.default_model and errors when the adapter has none).
+    kw.setdefault("user_model", "fake-model")
     with patch("catclaws.classify.get_adapter", return_value=adapter):
         return catclaws.classify(
             input_data=rows or ["job move", "family move"],
@@ -239,3 +242,52 @@ class TestRateLimitBackoff:
         assert events.index("fast-done") < events.index(("sleep", 30.0))
         # Only the throttled row ever slept.
         assert sum(1 for e in events if isinstance(e, tuple)) == 2
+
+
+class _CapturingAdapter(AgentAdapter):
+    """Records the model each one_shot call received."""
+
+    name = "capturing"
+    default_model = "pinned-default"
+
+    def __init__(self):
+        self.models_seen = []
+
+    async def one_shot(self, prompt, system_prompt, model, thinking_budget=0):
+        self.models_seen.append(model)
+        return '{"1": 1, "2": 0}', None
+
+
+class TestAgentSelection:
+    def test_agent_name_reaches_the_registry(self):
+        """classify(agent=...) must look up exactly that adapter."""
+        fake = FakeAdapter()
+        with patch("catclaws.classify.get_adapter", return_value=fake) as ga:
+            catclaws.classify(
+                ["job move"], ["Employment", "Family"],
+                user_model="fake-model", agent="codex",
+            )
+        ga.assert_called_once_with("codex")
+
+    def test_user_model_none_resolves_to_adapter_default(self):
+        cap = _CapturingAdapter()
+        with patch("catclaws.classify.get_adapter", return_value=cap):
+            df = catclaws.classify(["job move"], ["Employment", "Family"])
+        assert cap.models_seen == ["pinned-default"]
+        assert df["processing_status"].tolist() == ["success"]
+
+    def test_explicit_user_model_wins_over_default(self):
+        cap = _CapturingAdapter()
+        with patch("catclaws.classify.get_adapter", return_value=cap):
+            catclaws.classify(
+                ["job move"], ["Employment", "Family"], user_model="my-model"
+            )
+        assert cap.models_seen == ["my-model"]
+
+    def test_adapter_without_default_requires_user_model(self):
+        class _NoDefault(AgentAdapter):
+            name = "nodefault"
+
+        with patch("catclaws.classify.get_adapter", return_value=_NoDefault()):
+            with pytest.raises(ValueError, match="user_model"):
+                catclaws.classify(["x"], ["A"])

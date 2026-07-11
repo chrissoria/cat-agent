@@ -44,9 +44,30 @@ def make_rows(n):
     return [_REASONS[i % len(_REASONS)] for i in range(n)]
 
 
-def _versions():
+# Per-agent benchmark defaults: the cheap tier of each subscription.
+_DEFAULT_BENCH_MODEL = {"claude": "claude-haiku-4-5", "codex": "gpt-5.4-mini"}
+
+
+def _versions(agent="claude"):
+    if agent == "codex":
+        try:
+            sdk = "openai-codex " + __import__("openai_codex").__version__
+        except Exception:
+            sdk = "?"
+        try:
+            import os
+            import codex_cli_bin
+            bin_path = os.path.join(
+                os.path.dirname(codex_cli_bin.__file__), "bin", "codex"
+            )
+            cli = subprocess.run(
+                [bin_path, "--version"], capture_output=True, text=True, timeout=15
+            ).stdout.strip() + " (bundled)"
+        except Exception:
+            cli = "?"
+        return sdk, cli
     try:
-        sdk = __import__("claude_agent_sdk").__version__
+        sdk = "claude-agent-sdk " + __import__("claude_agent_sdk").__version__
     except Exception:
         sdk = "?"
     try:
@@ -58,13 +79,13 @@ def _versions():
     return sdk, cli
 
 
-def run(n, workers_list, model, description="Why did you move?"):
+def run(n, workers_list, model, agent="claude", description="Why did you move?"):
     rows = make_rows(n)
     results = []
     for w in workers_list:
         t0 = time.perf_counter()
         df = catclaws.classify(
-            rows, CATEGORIES, user_model=model,
+            rows, CATEGORIES, user_model=model, agent=agent,
             description=description, max_workers=w,
         )
         dt = time.perf_counter() - t0
@@ -75,17 +96,17 @@ def run(n, workers_list, model, description="Why did you move?"):
     return results
 
 
-def write_results(path, n, model, results):
+def write_results(path, n, model, results, agent="claude"):
     """Append a timestamped run block to RESULTS.md (never overwrite — the
     file also holds a hand-written narrative worth keeping)."""
-    sdk, cli = _versions()
+    sdk, cli = _versions(agent)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
         "",
         f"## Throughput run — {stamp}",
         "",
-        f"- Model: `{model}`  |  rows: {n}  |  synthetic 'reason for moving' data",
-        f"- claude-agent-sdk: {sdk}  |  Claude CLI: {cli}",
+        f"- Agent: `{agent}`  |  Model: `{model}`  |  rows: {n}  |  synthetic 'reason for moving' data",
+        f"- SDK: {sdk}  |  CLI: {cli}",
         "",
         "| max_workers | wall time | rows/s | errors |",
         "|---:|---:|---:|---:|",
@@ -105,19 +126,23 @@ def main():
     ap.add_argument("--n", type=int, default=50)
     ap.add_argument("--workers", default="1,4,8",
                     help="comma-separated max_workers values")
-    ap.add_argument("--model", default="claude-haiku-4-5")
+    ap.add_argument("--agent", default="claude", choices=["claude", "codex"])
+    ap.add_argument("--model", default=None,
+                    help="default: the agent's cheap tier "
+                         f"({_DEFAULT_BENCH_MODEL})")
     ap.add_argument("--write-results", action="store_true",
                     help="write benchmarks/RESULTS.md")
     args = ap.parse_args()
     workers_list = [int(x) for x in args.workers.split(",") if x.strip()]
+    model = args.model or _DEFAULT_BENCH_MODEL[args.agent]
 
-    print(f"Benchmarking classify(): n={args.n}, model={args.model}, "
-          f"workers={workers_list}")
-    results = run(args.n, workers_list, args.model)
+    print(f"Benchmarking classify(): n={args.n}, agent={args.agent}, "
+          f"model={model}, workers={workers_list}")
+    results = run(args.n, workers_list, model, agent=args.agent)
     if args.write_results:
         import os
         out = os.path.join(os.path.dirname(__file__), "RESULTS.md")
-        write_results(out, args.n, args.model, results)
+        write_results(out, args.n, model, results, agent=args.agent)
 
 
 if __name__ == "__main__":
