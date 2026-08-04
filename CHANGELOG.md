@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-04
+
+### Fixed
+- **Claude adapter: subscription auth is now actually the default.** The
+  agent child process inherited `ANTHROPIC_API_KEY` from the environment,
+  and the Agent SDK silently prefers a key over the claude.ai login — so
+  "subscription" runs were key-billed whenever a key was set (the SDK
+  warned on every call). `one_shot` now blanks `ANTHROPIC_API_KEY` in the
+  child env by default; set `CATCLAWS_USE_API_KEY=1` to opt back into
+  key billing.
+
 ## [0.3.0] - 2026-07-11
 
 - **Codex adapter** (`agent="codex"`): classify through a ChatGPT
