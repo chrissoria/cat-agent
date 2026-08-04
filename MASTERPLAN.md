@@ -205,3 +205,22 @@ the same SDK-over-shim call Phase 0 made for Claude.*
 - [x] Cross-agent parity run 2026-07-11: 24 synthetic rows, frozen prompt —
       96/96 cell agreement, kappa 1.000, 0 errors (claude-sonnet-5 vs
       gpt-5.5); benchmarks/RESULTS.md + README methodology note
+
+## Extraction parity study — 2026-08-04
+
+First live use of the claude-agent backend for *extraction* (cat-stack
+`explore()`, 8×8 chunked, 1,079-response survey corpus, claude-sonnet-5),
+against the anthropic HTTP API as reference. n=1 agent run, n=2 API runs:
+
+- Raw-inventory JW soft-overlap: within-arm (api vs api) 0.926; cross-arm
+  0.894–0.897. Downstream top-12 taxonomies (identical Qwen consolidation):
+  within-arm 0.753; cross-arm 0.745–0.767 — **cross-arm indistinguishable
+  from within-arm variance at the taxonomy level. Parity passes.**
+- Agent arm showed higher raw-label uniqueness (89% vs 74–75%); n=1, cause
+  unresolved (harness system prompt vs sampling noise). Worth a repeat now
+  that auth is fixed (below).
+- Two fixes shipped from this study: cat-stack `explore()`/`extract()`
+  api_key now optional (was a positional TypeError for agent backends;
+  cat-stack 5df33e5), and the adapter blanks inherited ANTHROPIC_API_KEY so
+  runs actually bill the subscription (dba8de3 — every call in the study had
+  been silently key-billed via the precedence rule).
