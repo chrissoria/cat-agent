@@ -4,6 +4,8 @@ Requires Claude Code installed and logged in (`claude` on PATH). Calls run
 through the user's Claude subscription, not an API key.
 """
 
+import os
+
 from .base import (  # noqa: F401 — helper re-exports keep older imports valid
     RATE_LIMIT_PREFIX,
     AgentAdapter,
@@ -94,6 +96,14 @@ class ClaudeAdapter(AgentAdapter):
             max_turns=1,
             setting_sources=[],
         )
+
+        # Subscription auth: an inherited ANTHROPIC_API_KEY takes precedence
+        # over the claude.ai login and silently bills the API per token —
+        # defeating this package's purpose. Blank it in the child env so the
+        # subscription is used. Set CATCLAWS_USE_API_KEY=1 to opt back into
+        # key-billed calls through the agent runtime.
+        if not os.environ.get("CATCLAWS_USE_API_KEY"):
+            opts_kwargs["env"] = {"ANTHROPIC_API_KEY": ""}
         if system_prompt:
             opts_kwargs["system_prompt"] = system_prompt
 
