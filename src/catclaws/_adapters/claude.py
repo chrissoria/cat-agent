@@ -51,20 +51,14 @@ def _rate_limit_detail(info) -> str | None:
     return detail
 
 
-AUTH_HINT = (
-    " -- log the Claude CLI in once: run `claude` in a terminal and type "
-    "/login. The Agent SDK uses the CLI's own login, which is separate from "
-    "the Claude desktop app's sign-in."
-)
-
-
 def _with_auth_hint(result):
-    """Append the /login hint to authentication failures (the SDK's own text
-    is just "Not logged in · Please run /login", with no context about which
-    login it means)."""
+    """Append sign-in instructions to authentication failures. The SDK's own
+    text ("Not logged in · Please run /login") doesn't say which login it
+    means; sign_in_help() does, worded for the Claude app or a terminal."""
     text, error = result
     if error and ("authentication_failed" in error or "not logged in" in error.lower()):
-        return text, error + AUTH_HINT
+        from .._auth import sign_in_help
+        return text, f"{error} -- {sign_in_help('claude')}"
     return text, error
 
 

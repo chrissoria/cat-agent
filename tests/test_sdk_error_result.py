@@ -14,7 +14,8 @@ from unittest.mock import patch
 
 import pytest
 
-from catclaws._adapters.claude import AUTH_HINT, ClaudeAdapter
+from catclaws._adapters.claude import ClaudeAdapter
+from catclaws._auth import sign_in_help
 
 sdk = pytest.importorskip("claude_agent_sdk")
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock  # noqa: E402
@@ -58,7 +59,7 @@ def test_real_reason_survives_the_generic_sdk_raise():
 def test_auth_failure_gets_login_hint():
     _, err = _one_shot(_auth_failure_messages(),
                        raise_after="Claude Code returned an error result: success")
-    assert err.endswith(AUTH_HINT)
+    assert err.endswith(sign_in_help("claude"))
 
 
 def test_errored_assistant_text_is_never_returned_as_an_answer():

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-27
+
+### Added
+- **Sign-in helpers**, exported from the package: `catclaws.login(agent)`
+  starts the browser sign-in from Python (terminal, notebook, or inside the
+  Claude app when Claude runs it); `catclaws.auth_status(agent)` checks the
+  login with no model call (`claude auth status`, on the same binary the
+  Agent SDK launches: its bundled CLI first, then PATH);
+  `catclaws.ensure_signed_in(agent)` is the preflight; `sign_in_help(agent)`
+  returns instructions; `NotSignedInError` (a `ConnectionError`).
+- **Sign-in preflight in `classify()`**: a signed-out session stops before
+  any row runs, instead of every row failing on "not logged in". At an
+  interactive terminal it offers to open the sign-in; otherwise it raises
+  `NotSignedInError`. An undeterminable status never blocks a run.
+- **Context-aware instructions**: inside the Claude desktop app
+  (`CLAUDE_CODE_ENTRYPOINT=claude-desktop`) they point at asking Claude to
+  run `catclaws.login()` or the app's Terminal panel; elsewhere at
+  `catclaws.login()` / `claude auth login`; always mentioning
+  `claude setup-token` + `CLAUDE_CODE_OAUTH_TOKEN` for unattended runs.
+  The Claude adapter's authentication-failure errors use the same text.
+- README: "Signing in (once)" section.
+
 ## [0.3.2] - 2026-09-27
 
 ### Added

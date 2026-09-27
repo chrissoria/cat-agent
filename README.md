@@ -24,6 +24,26 @@ pip install "cat-claws[claude,codex]"  # both
 A bare `pip install cat-claws` installs neither SDK; calls then return a
 clear per-row install hint instead of classifying.
 
+## Signing in (once)
+
+cat-claws runs on the agent CLI's own login, not an API key. For Claude that
+is the Claude Code CLI the Agent SDK launches, a login **separate from the
+Claude desktop app's sign-in** (you can be signed in to the app and still be
+signed out here). Every run checks this first, with no model call, so a
+signed-out session stops before any row with instructions, instead of every
+row failing.
+
+| Where you are | How to sign in |
+|---|---|
+| Python, a notebook, or any script | `catclaws.login()` (opens a browser window to approve) |
+| A terminal | `claude auth login` |
+| The Claude desktop app | ask Claude to run `catclaws.login()` for you, or open the Terminal panel in the Code tab and run `claude auth login` |
+| Unattended / scheduled runs | `claude setup-token` once, then set `CLAUDE_CODE_OAUTH_TOKEN` |
+
+At an interactive terminal, a signed-out run offers to open the sign-in for
+you. `catclaws.auth_status()` reports the current state; the Codex backend
+uses `catclaws.login("codex")` / `codex login`.
+
 ## Design in one paragraph
 
 One row = one sealed, fresh-context agent call (no tools, single turn, no

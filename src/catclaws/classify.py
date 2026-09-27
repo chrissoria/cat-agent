@@ -16,6 +16,7 @@ import time
 import pandas as pd
 
 from ._adapters import get_adapter
+from ._auth import ensure_signed_in
 from ._adapters.base import is_rate_limited, parse_reset_epoch
 from ._backend import gather_bounded
 
@@ -88,6 +89,9 @@ def classify(
         raise ValueError("categories is empty")
 
     adapter = get_adapter(agent)
+    # Fail fast (or offer a browser sign-in) before any row runs, rather
+    # than every row failing on "not logged in".
+    ensure_signed_in(agent)
     if user_model is None:
         user_model = adapter.default_model
     if user_model is None:  # defensive: every shipped adapter pins a default
