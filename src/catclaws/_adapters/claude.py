@@ -51,6 +51,23 @@ def _rate_limit_detail(info) -> str | None:
     return detail
 
 
+AUTH_HINT = (
+    " -- log the Claude CLI in once: run `claude` in a terminal and type "
+    "/login. The Agent SDK uses the CLI's own login, which is separate from "
+    "the Claude desktop app's sign-in."
+)
+
+
+def _with_auth_hint(result):
+    """Append the /login hint to authentication failures (the SDK's own text
+    is just "Not logged in · Please run /login", with no context about which
+    login it means)."""
+    text, error = result
+    if error and ("authentication_failed" in error or "not logged in" in error.lower()):
+        return text, error + AUTH_HINT
+    return text, error
+
+
 def _api_status_is_rate_limit(status) -> bool:
     """HTTP 429 (too many requests) is the rate-limit status."""
     return status == 429
@@ -144,23 +161,37 @@ class ClaudeAdapter(AgentAdapter):
 
             return _stream()
 
-        async def _run(options):
-            """Consume one query stream -> (text, result_error, rate_limit_detail)."""
-            text_parts = []
-            result_error = None
-            rate_limit_detail = None
+        def _new_state():
+            return {"text": [], "error": None, "rate_limit": None}
+
+        async def _run(options, state):
+            """Consume one query stream into `state`.
+
+            State lives outside the stream on purpose: the SDK reports a
+            failed call (e.g. "Not logged in") in an error AssistantMessage
+            and an is_error ResultMessage, then RAISES a generic "Claude Code
+            returned an error result: success". Collecting into the caller's
+            dict keeps that real reason when the exception follows.
+            """
             async for message in query(prompt=_make_query_prompt(), options=options):
                 if isinstance(message, AssistantMessage):
+                    # An errored assistant message (authentication_failed,
+                    # ...) carries synthetic text that is the error, not an
+                    # answer; never return it as one.
+                    msg_error = getattr(message, "error", None)
                     for block in message.content:
                         if isinstance(block, TextBlock):
-                            text_parts.append(block.text)
+                            if msg_error:
+                                state["error"] = state["error"] or f"{msg_error}: {block.text}"
+                            else:
+                                state["text"].append(block.text)
                 elif isinstance(message, RateLimitEvent):
                     detail = _rate_limit_detail(getattr(message, "rate_limit_info", None))
                     if detail:
-                        rate_limit_detail = detail
+                        state["rate_limit"] = detail
                 elif isinstance(message, ResultMessage):
                     if _api_status_is_rate_limit(getattr(message, "api_error_status", None)):
-                        rate_limit_detail = rate_limit_detail or "HTTP 429 (too many requests)"
+                        state["rate_limit"] = state["rate_limit"] or "HTTP 429 (too many requests)"
                     if getattr(message, "is_error", False):
                         errs = getattr(message, "errors", None) or []
                         parts = [
@@ -168,16 +199,24 @@ class ClaudeAdapter(AgentAdapter):
                             for p in ([getattr(message, "result", None)] + list(errs))
                             if p
                         ]
-                        result_error = " ".join(parts) or "agent returned an error result"
-            return "".join(text_parts).strip(), result_error, rate_limit_detail
+                        state["error"] = state["error"] or " ".join(parts) or "agent returned an error result"
 
+        def _collected(state):
+            return "".join(state["text"]).strip(), state["error"], state["rate_limit"]
+
+        state = _new_state()
         try:
-            return _finalize(*await _run(ClaudeAgentOptions(**opts_kwargs)))
+            await _run(ClaudeAgentOptions(**opts_kwargs), state)
+            return _with_auth_hint(_finalize(*_collected(state)))
         except CLINotFoundError:
             return None, (
                 "Claude CLI not found. Install it: https://code.claude.com/docs"
             )
         except Exception as e:
+            # The SDK raised after the stream had already said why the call
+            # failed; report that reason, not the generic exception text.
+            if state["error"] or state["rate_limit"]:
+                return _with_auth_hint(_finalize(*_collected(state)))
             if _looks_rate_limited_text(e):
                 return None, f"{RATE_LIMIT_PREFIX}{e}"
             # Thinking-config incompatibilities (e.g. models that reject an
@@ -185,9 +224,13 @@ class ClaudeAdapter(AgentAdapter):
             # failing the row.
             if "thinking" in str(e).lower() and "thinking" in opts_kwargs:
                 opts_kwargs.pop("thinking", None)
+                state = _new_state()
                 try:
-                    return _finalize(*await _run(ClaudeAgentOptions(**opts_kwargs)))
+                    await _run(ClaudeAgentOptions(**opts_kwargs), state)
+                    return _with_auth_hint(_finalize(*_collected(state)))
                 except Exception as e2:
+                    if state["error"] or state["rate_limit"]:
+                        return _with_auth_hint(_finalize(*_collected(state)))
                     if _looks_rate_limited_text(e2):
                         return None, f"{RATE_LIMIT_PREFIX}{e2}"
                     return None, f"claude adapter failed: {e2}"

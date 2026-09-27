@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-27
+
+### Fixed
+- **Claude adapter: failed calls now report their real reason.** When an
+  agent call fails, the Agent SDK yields an error message (e.g. "Not logged
+  in · Please run /login", `error="authentication_failed"`) and an
+  `is_error` result, then raises a generic `Exception("Claude Code returned
+  an error result: success")`. The adapter caught only that exception, so
+  every such failure surfaced as the meaningless "error result: success".
+  Stream state now survives the raise and the SDK's actual message is
+  returned.
+- **Synthetic error text is no longer returned as an answer.** An
+  `AssistantMessage` with `error` set (e.g. `authentication_failed`) carries
+  the error as its text; that text is now recorded as the error instead of
+  being collected into the reply.
+- **Authentication failures get an actionable hint:** log the Claude CLI in
+  with `claude` then `/login` (the Agent SDK uses the CLI's own login,
+  separate from the Claude desktop app's sign-in).
+
 ## [0.3.1] - 2026-08-04
 
 ### Fixed
