@@ -11,6 +11,7 @@ against the real SDK when it is present.
 """
 
 import asyncio
+import os
 import sys
 import types
 from types import SimpleNamespace
@@ -123,13 +124,15 @@ def _stub_sdk(outcomes, thread_kwargs_log, run_log, async_thread_start=True):
 
     mod = types.ModuleType("openai_codex")
     mod.AsyncCodex = _FakeAsyncCodex
+    mod.TextInput = lambda text: ("text", text)
+    mod.LocalImageInput = lambda path: ("image", path)
     mod.Sandbox = SimpleNamespace(read_only="read-only")
     mod.ApprovalMode = SimpleNamespace(deny_all="deny_all")
     return mod
 
 
 def _one_shot(outcomes, thinking_budget=0, system_prompt="sys prompt",
-              async_thread_start=True):
+              async_thread_start=True, images=None):
     thread_kwargs, runs = [], []
     mod = _stub_sdk(outcomes, thread_kwargs, runs, async_thread_start)
     with patch.dict(sys.modules, {"openai_codex": mod}):
@@ -139,6 +142,7 @@ def _one_shot(outcomes, thinking_budget=0, system_prompt="sys prompt",
                 system_prompt=system_prompt,
                 model="gpt-5.5",
                 thinking_budget=thinking_budget,
+                images=images,
             )
         )
     return text, error, thread_kwargs, runs
@@ -237,3 +241,49 @@ def test_real_sdk_assumptions_still_hold():
     import openai_codex as oc
     assert hasattr(oc, "AsyncCodex") and hasattr(oc.AsyncCodex, "thread_start")
     assert list(_turn_error(root="x").codex_error_info.__dict__) == ["root"] or True
+
+
+class TestCodexImages:
+    """Images: base64 contract -> files -> [TextInput, LocalImageInput(path)]
+    (spike P9 shape). Files live outside the sealed cwd and are removed."""
+
+    PNG = b"\x89PNG\r\n\x1a\nfake"
+
+    def _images(self, *media_types):
+        import base64
+        data = base64.b64encode(self.PNG).decode()
+        return [{"media_type": mt, "data": data} for mt in media_types]
+
+    def test_images_become_local_image_inputs(self):
+        seen = {}
+
+        class _Capture(_FakeThread):
+            async def run(self, prompt, effort=None, **kw):
+                # Files must exist, with the decoded bytes, DURING the call.
+                seen["input"] = prompt
+                seen["bytes"] = [open(p, "rb").read() for kind, p in prompt if kind == "image"]
+                return await super().run(prompt, effort=effort, **kw)
+
+        with patch(f"{__name__}._FakeThread", _Capture):
+            text, err, kwargs, runs = _one_shot(
+                [_result(final_response="Red")], images=self._images("image/png", "image/jpeg"))
+        assert (text, err) == ("Red", None)
+        items = seen["input"]
+        assert items[0] == ("text", "the prompt")
+        assert [k for k, _ in items[1:]] == ["image", "image"]
+        assert items[1][1].endswith(".png") and items[2][1].endswith(".jpg")
+        assert seen["bytes"] == [self.PNG, self.PNG]
+        # Kept out of the sealed, empty cwd ...
+        assert not any(os.path.dirname(p) == kwargs[0]["cwd"] for _, p in items[1:])
+        # ... and deleted afterwards.
+        assert not any(os.path.exists(p) for _, p in items[1:])
+
+    def test_text_only_call_still_sends_a_plain_string(self):
+        _, _, _, runs = _one_shot([_result()])
+        assert runs[0]["prompt"] == "the prompt"
+
+    def test_bad_base64_is_a_clear_error_not_a_crash(self):
+        text, err, kwargs, runs = _one_shot(
+            [_result()], images=[{"media_type": "image/png", "data": "not base64!!"}])
+        assert text is None and "not valid base64" in err
+        assert runs == []  # never reached the SDK

@@ -62,8 +62,9 @@ via `catstack.classify(..., model_source="claude-agent")` /
 
 Notes for `agent="codex"`: reasoning is explicitly set per call
 (`thinking_budget=0` → effort "none"), so your `~/.codex/config.toml`
-defaults are never silently inherited; image/PDF input is not yet supported
-on the codex backend (use `agent="claude"` or an API provider).
+defaults are never silently inherited. Images (and rendered PDF pages) are
+supported on both backends; the codex SDK takes file paths, so each image is
+written to a private temp file for the call and deleted afterwards.
 
 ## Methodology note
 

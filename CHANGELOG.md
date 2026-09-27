@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.2] - 2026-09-27
 
+### Added
+- **Codex adapter: image input** (`images=[{"media_type", "data"}]`), so
+  image and rendered-PDF-page calls work on `agent="codex"` as on
+  `agent="claude"`. The openai-codex SDK takes file paths
+  (`[TextInput, LocalImageInput(path)]`, spike P9), so each base64 image is
+  decoded into a private tempdir (kept out of the sealed empty `cwd`) and
+  deleted after the call; invalid base64 returns a clear error without
+  reaching the SDK. Replaces the "image/PDF input is not yet supported"
+  refusal.
+  *Verified with mocked-SDK tests only;* a live smoke is pending (no ChatGPT
+  plan with Codex model access at release time).
+
 ### Fixed
 - **Claude adapter: failed calls now report their real reason.** When an
   agent call fails, the Agent SDK yields an error message (e.g. "Not logged

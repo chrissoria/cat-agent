@@ -20,9 +20,18 @@ recorded findings, especially:
   reference machine). Never send effort=None: that silently inherits user
   config — slow, quota-burning, non-reproducible.
 - `TurnResult.status` is a plain enum: compare `.value`, never the string.
+- Images (spike P9): the SDK takes image FILE PATHS
+  (`[TextInput(text=...), LocalImageInput(path=...)]`, verified on an 8x8
+  PNG), not the adapter contract's base64. `one_shot` writes each image to a
+  private tempdir -- kept OUT of the sealed empty `cwd` -- and deletes it
+  after the call.
 """
 
+import base64
+import binascii
 import inspect
+import os
+import shutil
 import tempfile
 
 from .base import (
@@ -60,6 +69,32 @@ def _rate_limit_detail_from_turn_error(err) -> str | None:
     return None
 
 
+_IMAGE_EXTENSIONS = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
+
+
+def _write_images(images, directory):
+    """Decode the contract's ``{"media_type", "data"}`` images into files in
+    `directory`; return their paths in order. Raises ValueError on bad data."""
+    paths = []
+    for i, im in enumerate(images):
+        ext = _IMAGE_EXTENSIONS.get((im.get("media_type") or "image/png").lower(), "png")
+        try:
+            raw = base64.b64decode(im["data"], validate=True)
+        except (KeyError, binascii.Error, TypeError) as e:
+            raise ValueError(f"image {i} is not valid base64 data ({e})") from e
+        path = os.path.join(directory, f"image_{i}.{ext}")
+        with open(path, "wb") as f:
+            f.write(raw)
+        paths.append(path)
+    return paths
+
+
 class CodexAdapter(AgentAdapter):
     name = "codex"
     default_model = "gpt-5.5"
@@ -72,16 +107,6 @@ class CodexAdapter(AgentAdapter):
         thinking_budget: int = 0,
         images: list | None = None,
     ) -> tuple[str | None, str | None]:
-        if images:
-            # Checked BEFORE the SDK import: unsupported regardless of install
-            # state. The SDK takes image PATHS (LocalImageInput), not our
-            # base64 contract — feasible via a tempfile shim (spike P9) but
-            # deferred by scope decision. Clear error, not a silent wrong path.
-            return None, (
-                "codex adapter: image/PDF input is not yet supported. "
-                "Use agent='claude' or an API-key provider."
-            )
-
         try:
             from openai_codex import ApprovalMode, AsyncCodex, Sandbox
         except ImportError as e:
@@ -89,6 +114,21 @@ class CodexAdapter(AgentAdapter):
                 'openai-codex is not installed. Run: pip install "cat-claws[codex]" '
                 f"(original error: {e})"
             )
+
+        # Images -> files for LocalImageInput (the SDK takes paths). Written
+        # to their own tempdir, never the sealed empty cwd, and removed in
+        # the finally below.
+        image_dir = None
+        run_input = prompt
+        if images:
+            from openai_codex import LocalImageInput, TextInput
+            image_dir = tempfile.mkdtemp(prefix="catclaws-codex-img-")
+            try:
+                paths = _write_images(images, image_dir)
+            except ValueError as e:
+                shutil.rmtree(image_dir, ignore_errors=True)
+                return None, f"codex adapter: {e}"
+            run_input = [TextInput(text=prompt)] + [LocalImageInput(path=p) for p in paths]
 
         # Engine parity: thinking_budget=0 -> reasoning off. "none" is
         # accepted live (0 reasoning tokens) even though models() only
@@ -120,7 +160,7 @@ class CodexAdapter(AgentAdapter):
                 thread = codex.thread_start(**thread_kwargs)
                 if inspect.iscoroutine(thread):
                     thread = await thread
-                result = await thread.run(prompt, effort=effort_arg)
+                result = await thread.run(run_input, effort=effort_arg)
 
             status = getattr(result.status, "value", result.status)
             if status == "completed":
@@ -134,6 +174,14 @@ class CodexAdapter(AgentAdapter):
             extra = getattr(err, "additional_details", None)
             return "", (f"{msg} ({extra})" if extra else str(msg)), None
 
+        try:
+            return await self._run_with_fallback(_run, effort)
+        finally:
+            if image_dir:
+                shutil.rmtree(image_dir, ignore_errors=True)
+
+    async def _run_with_fallback(self, _run, effort):
+        """Run once; on an effort rejection retry at "low" (never None)."""
         try:
             return _finalize(*await _run(effort))
         except Exception as e:

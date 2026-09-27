@@ -34,7 +34,7 @@ SPECS = {
         "sdk_modules": ("openai_codex",),
         "install_hint": 'pip install "cat-claws[codex]"',
         "default_model": "gpt-5.5",
-        "supports_images": False,
+        "supports_images": True,  # tempfile -> LocalImageInput (test_codex_adapter)
     },
 }
 
