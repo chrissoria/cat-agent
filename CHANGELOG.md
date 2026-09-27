@@ -17,10 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Agent SDK launches: its bundled CLI first, then PATH);
   `catclaws.ensure_signed_in(agent)` is the preflight; `sign_in_help(agent)`
   returns instructions; `NotSignedInError` (a `ConnectionError`).
-- **Sign-in preflight in `classify()`**: a signed-out session stops before
-  any row runs, instead of every row failing on "not logged in". At an
-  interactive terminal it offers to open the sign-in; otherwise it raises
-  `NotSignedInError`. An undeterminable status never blocks a run.
+- **Automatic, one-time sign-in** (`classify()` and cat-stack's agent
+  backends run it before any row): signed in -> nothing happens; signed out
+  -> a single browser window opens by itself and the run continues once the
+  sign-in completes, with no prompt or command. At most one window per
+  process (concurrent callers share one attempt behind a lock), a failed
+  attempt is not repeated in the same process, the CLI never waits on
+  typed input (stdin closed) and the attempt is time-limited (300 s).
+  Skipped where no browser can open (CI, headless Linux, or
+  `CATCLAWS_NO_AUTO_LOGIN=1`), which raise `NotSignedInError` with
+  instructions instead. An undeterminable status never blocks a run. The
+  Claude desktop app's own sign-in cannot be reused (the app shares its
+  token with no other program), so the CLI signs in once and keeps it.
 - **Context-aware instructions**: inside the Claude desktop app
   (`CLAUDE_CODE_ENTRYPOINT=claude-desktop`) they point at asking Claude to
   run `catclaws.login()` or the app's Terminal panel; elsewhere at

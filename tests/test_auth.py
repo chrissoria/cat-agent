@@ -16,6 +16,7 @@ from catclaws._auth import NotSignedInError, auth_status, ensure_signed_in, sign
 @pytest.fixture(autouse=True)
 def _fresh_cache(monkeypatch):
     monkeypatch.setattr(_auth, "_SIGNED_IN", set())
+    monkeypatch.setattr(_auth, "_LOGIN_ATTEMPTED", set())
     monkeypatch.setattr(_auth, "_claude_cli", lambda: "/fake/claude")
 
 
@@ -66,27 +67,69 @@ def test_preflight_signed_in_is_quiet_and_cached():
 
 
 @pytest.mark.real_auth
-def test_preflight_signed_out_non_interactive_raises_with_help():
+def test_signed_out_without_browser_raises_with_help():
     with patch("subprocess.run", return_value=_status(False)):
         with pytest.raises(NotSignedInError) as ei:
-            ensure_signed_in("claude", interactive=False)
+            ensure_signed_in("claude", auto_login=False)
     assert "not signed in" in str(ei.value)
 
 
 @pytest.mark.real_auth
-def test_preflight_offers_sign_in_when_interactive(monkeypatch):
-    monkeypatch.setattr("builtins.input", lambda prompt: "")
+def test_signed_out_opens_sign_in_automatically(monkeypatch):
     logins = []
     monkeypatch.setattr(_auth, "login", lambda agent: logins.append(agent) or True)
     with patch("subprocess.run", return_value=_status(False)):
-        ensure_signed_in("claude", interactive=True)
+        ensure_signed_in("claude", auto_login=True)  # no prompt, no raise
     assert logins == ["claude"]
+
+
+@pytest.mark.real_auth
+def test_concurrent_callers_open_one_browser_window(monkeypatch):
+    import threading
+    import time
+    logins = []
+
+    def slow_login(agent):
+        logins.append(agent)
+        time.sleep(0.2)
+        _auth._SIGNED_IN.add(agent)  # login() records success
+        return True
+
+    monkeypatch.setattr(_auth, "login", slow_login)
+    with patch("subprocess.run", return_value=_status(False)):
+        threads = [threading.Thread(target=ensure_signed_in, args=("claude", True))
+                   for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    assert logins == ["claude"]
+
+
+@pytest.mark.real_auth
+def test_failed_sign_in_is_not_retried_in_the_same_process(monkeypatch):
+    logins = []
+    monkeypatch.setattr(_auth, "login", lambda agent: logins.append(agent) or False)
+    monkeypatch.setattr(_auth, "_LOGIN_ATTEMPTED", set())
+    with patch("subprocess.run", return_value=_status(False)):
+        for _ in range(3):
+            with pytest.raises(NotSignedInError):
+                ensure_signed_in("claude", auto_login=True)
+    assert logins == ["claude"]
+
+
+@pytest.mark.parametrize("env", [{"CATCLAWS_NO_AUTO_LOGIN": "1"}, {"CI": "true"},
+                                 {"GITHUB_ACTIONS": "true"}])
+def test_no_automatic_browser_in_ci_or_when_opted_out(monkeypatch, env):
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    assert _auth.can_open_browser() is False
 
 
 @pytest.mark.real_auth
 def test_preflight_unknown_status_never_blocks(monkeypatch):
     monkeypatch.setattr(_auth, "_claude_cli", lambda: None)
-    ensure_signed_in("claude", interactive=False)  # no raise
+    ensure_signed_in("claude", auto_login=False)  # no raise
 
 
 @pytest.mark.real_auth
@@ -102,6 +145,7 @@ def test_classify_fails_fast_before_any_row(monkeypatch):
 
     from conftest import CLASSIFY_MODULE
     monkeypatch.setattr(CLASSIFY_MODULE, "get_adapter", lambda name: Adapter())
+    monkeypatch.setenv("CATCLAWS_NO_AUTO_LOGIN", "1")  # no browser in tests
     with patch("subprocess.run", return_value=_status(False)):
         with pytest.raises(NotSignedInError):
             catclaws.classify(input_data=["a", "b"], categories=["X"], description="d",

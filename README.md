@@ -28,21 +28,26 @@ clear per-row install hint instead of classifying.
 
 cat-claws runs on the agent CLI's own login, not an API key. For Claude that
 is the Claude Code CLI the Agent SDK launches, a login **separate from the
-Claude desktop app's sign-in** (you can be signed in to the app and still be
-signed out here). Every run checks this first, with no model call, so a
-signed-out session stops before any row with instructions, instead of every
-row failing.
+Claude desktop app's sign-in** (the app shares its sign-in with no other
+program, so you can be signed in there and signed out here).
+
+**You don't need to do anything up front.** Every run checks the login
+first (no model call). If you're signed out, a single browser window opens
+by itself; approve it and the run continues. The login is kept, so this
+happens once.
+
+Where a browser can't open (CI, servers, or `CATCLAWS_NO_AUTO_LOGIN=1`) the
+run stops before any row with instructions instead:
 
 | Where you are | How to sign in |
 |---|---|
-| Python, a notebook, or any script | `catclaws.login()` (opens a browser window to approve) |
+| Python, a notebook, or any script | `catclaws.login()` |
 | A terminal | `claude auth login` |
-| The Claude desktop app | ask Claude to run `catclaws.login()` for you, or open the Terminal panel in the Code tab and run `claude auth login` |
+| The Claude desktop app | ask Claude to run `catclaws.login()` for you, or run `claude auth login` in the Code tab's Terminal panel |
 | Unattended / scheduled runs | `claude setup-token` once, then set `CLAUDE_CODE_OAUTH_TOKEN` |
 
-At an interactive terminal, a signed-out run offers to open the sign-in for
-you. `catclaws.auth_status()` reports the current state; the Codex backend
-uses `catclaws.login("codex")` / `codex login`.
+`catclaws.auth_status()` reports the current state; the Codex backend uses
+`catclaws.login("codex")` / `codex login`.
 
 ## Design in one paragraph
 

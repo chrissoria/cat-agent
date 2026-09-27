@@ -11,9 +11,15 @@ user is:
 - ``login(agent)``: starts the browser sign-in from Python -- works from a
   terminal, a notebook, or inside the Claude app (ask Claude to run it).
 - ``ensure_signed_in(agent)``: the preflight classify()/cat-stack call before
-  processing rows. Offers to sign in when a person is at an interactive
-  terminal; otherwise raises NotSignedInError with instructions for the
-  context (Claude app / terminal / unattended script).
+  processing rows. Signed in -> returns immediately. Signed out -> opens ONE
+  browser window for the sign-in by itself (once per process, even when many
+  calls start at once) and continues when it completes; where no browser can
+  open (CI, headless servers, CATCLAWS_NO_AUTO_LOGIN=1) or the sign-in does
+  not complete, raises NotSignedInError with instructions for the context.
+
+The Claude desktop app's own sign-in cannot be reused: the app hands its
+token to its Claude process over a private channel and shares it with no
+other program, so the CLI needs its own login -- once; it then persists.
 - ``sign_in_help(agent)``: those instructions as text.
 """
 
@@ -22,7 +28,7 @@ import os
 import platform
 import shutil
 import subprocess
-import sys
+import threading
 from pathlib import Path
 
 __all__ = ["NotSignedInError", "auth_status", "ensure_signed_in", "login", "sign_in_help"]
@@ -36,11 +42,27 @@ class NotSignedInError(ConnectionError):
 # mid-run often enough to justify re-checking every row); signed-out results
 # are never cached, so a login during the session is picked up.
 _SIGNED_IN = set()
+# One automatic sign-in attempt per agent per process: concurrent callers wait
+# on the lock and reuse the outcome, so at most one browser window opens.
+_LOGIN_LOCK = threading.Lock()
+_LOGIN_ATTEMPTED = set()
+LOGIN_TIMEOUT_S = 300
 
 
 def in_claude_app() -> bool:
     """True when running inside the Claude desktop app (its Code tab)."""
     return os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("claude-desktop")
+
+
+def can_open_browser() -> bool:
+    """Whether an automatic browser sign-in makes sense here: not opted out,
+    not CI, and a desktop session (macOS/Windows, or Linux with a display)."""
+    if os.environ.get("CATCLAWS_NO_AUTO_LOGIN") or os.environ.get("CI") \
+            or os.environ.get("GITHUB_ACTIONS"):
+        return False
+    if platform.system() in ("Darwin", "Windows"):
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
 def _claude_cli() -> str | None:
@@ -119,16 +141,19 @@ def sign_in_help(agent: str = "claude") -> str:
         where = ("Run catclaws.login() in Python, or `claude auth login` in a terminal; "
                  "a browser window opens for you to approve.")
     return ("The Claude CLI is not signed in. cat-claws uses the Claude Code CLI's "
-            "own login, which is separate from the Claude desktop app's sign-in. "
-            + where + " For unattended or scheduled runs, run `claude setup-token` once "
-            "and set CLAUDE_CODE_OAUTH_TOKEN.")
+            "own login, which is separate from the Claude desktop app's sign-in "
+            "(sign in once; it is then kept). " + where + " For unattended or "
+            "scheduled runs (no browser), run `claude setup-token` once and set "
+            "CLAUDE_CODE_OAUTH_TOKEN.")
 
 
-def login(agent: str = "claude") -> bool:
+def login(agent: str = "claude", timeout: float = LOGIN_TIMEOUT_S) -> bool:
     """Start the browser sign-in for the agent CLI; True once signed in.
 
     Output is streamed so the sign-in URL is visible in terminals and
-    notebooks alike (the browser normally opens by itself).
+    notebooks alike (the browser normally opens by itself). stdin is closed
+    so the CLI never waits for typed input, and the attempt is bounded by
+    `timeout` seconds.
     """
     if agent == "claude":
         cli = _claude_cli()
@@ -143,12 +168,23 @@ def login(agent: str = "claude") -> bool:
     else:
         raise ValueError(f"Unknown agent {agent!r}; choose 'claude' or 'codex'.")
 
-    print(f"Starting {agent} sign-in; approve it in the browser window that opens...")
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, env=_child_env() if agent == "claude" else None)
-    for line in proc.stdout:
-        print(line, end="")
-    proc.wait()
+    print(f"Signing in to {agent}: approve it in the browser window that opens "
+          f"(one time; the login is then kept).")
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True,
+                                env=_child_env() if agent == "claude" else None)
+    except OSError as e:
+        print(f"Could not start the {agent} sign-in: {e}")
+        return False
+    timer = threading.Timer(timeout, proc.kill)
+    timer.start()
+    try:
+        for line in proc.stdout:
+            print(line, end="")
+        proc.wait()
+    finally:
+        timer.cancel()
     ok = auth_status(agent)["logged_in"] is True
     if ok:
         _SIGNED_IN.add(agent)
@@ -156,22 +192,32 @@ def login(agent: str = "claude") -> bool:
     return ok
 
 
-def ensure_signed_in(agent: str = "claude", interactive: bool | None = None) -> None:
-    """Preflight: return quietly if signed in (or status unknown); otherwise
-    offer a browser sign-in at an interactive terminal, else raise
-    NotSignedInError with instructions for this context."""
+def ensure_signed_in(agent: str = "claude", auto_login: bool | None = None) -> None:
+    """Preflight before any row runs.
+
+    Signed in (or status undeterminable) -> return. Signed out -> open ONE
+    browser sign-in automatically and continue once it completes; with
+    concurrent callers only the first opens a window and the rest reuse its
+    outcome, and a failed attempt is not repeated in the same process.
+    `auto_login=None` means "when a browser can open here"
+    (see can_open_browser); otherwise raise NotSignedInError with
+    instructions for this context.
+    """
     if agent in _SIGNED_IN:
         return
-    status = auth_status(agent)
-    if status["logged_in"] is True:
-        _SIGNED_IN.add(agent)
-        return
-    if status["logged_in"] is None:
-        return  # can't tell; let the call itself report any problem
-    if interactive is None:
-        interactive = sys.stdin is not None and sys.stdin.isatty() and not in_claude_app()
-    if interactive:
-        answer = input(f"{agent} is not signed in. Open the browser to sign in now? [Y/n] ")
-        if answer.strip().lower() in ("", "y", "yes") and login(agent):
+    with _LOGIN_LOCK:
+        if agent in _SIGNED_IN:
             return
+        status = auth_status(agent)
+        if status["logged_in"] is True:
+            _SIGNED_IN.add(agent)
+            return
+        if status["logged_in"] is None:
+            return  # can't tell; let the call itself report any problem
+        if auto_login is None:
+            auto_login = can_open_browser()
+        if auto_login and agent not in _LOGIN_ATTEMPTED:
+            _LOGIN_ATTEMPTED.add(agent)
+            if login(agent):
+                return
     raise NotSignedInError(sign_in_help(agent))
